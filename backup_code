@@ -1,0 +1,760 @@
+#import google.generativeai as genai
+from google import genai
+from config import API_KEY, MODEL_NAME
+import os
+# Configure Gemini
+#genai.configure(api_key=API_KEY)
+
+
+client = genai.Client(api_key=API_KEY)
+
+def create_chat(temperature, top_p, top_k, max_tokens):
+    generation_config = {
+        "temperature": temperature,
+        "top_p": top_p,
+        "top_k": top_k,
+        "max_output_tokens": max_tokens,
+    }
+
+    model = genai.GenerativeModel(
+        model_name=MODEL_NAME,
+        generation_config=generation_config,
+    )
+
+    return model.start_chat(history=[])
+
+
+def stream_response(chat, prompt, image=None, video=None):
+    
+    try:
+        if image is not None:
+            response = chat.send_message(
+                [prompt, image],
+                stream=True
+            )
+        elif video is not None:
+            response = chat.send_message(
+                [prompt, video],
+                stream=True
+            )
+        else:
+            response = chat.send_message(
+                prompt,
+                stream=True
+            )
+
+        for chunk in response:
+            text = getattr(chunk, "text", "")
+            if text:
+                yield text
+
+    except Exception as e:
+        raise RuntimeError(f"Gemini API Error: {e}")
+    
+
+
+from google import genai
+from config import API_KEY, MODEL_NAME
+from PIL import Image
+import tempfile
+import os
+
+client = genai.Client(api_key=API_KEY)
+
+
+def create_chat():
+    chat = client.chats.create(
+        model=MODEL_NAME
+    )
+    return chat
+
+
+def stream_response(chat, prompt="", image=None, video=None):
+
+    try:
+
+        # ---------------- Image ----------------
+
+        if image is not None:
+
+            response = chat.send_message_stream(
+                message=[prompt, image]
+            )
+
+        # ---------------- Video ----------------
+
+        elif video is not None:
+
+            suffix = os.path.splitext(video.name)[1]
+
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=suffix
+            ) as temp:
+
+                temp.write(video.read())
+
+                temp_path = temp.name
+
+            uploaded_video = client.files.upload(
+                file=temp_path
+            )
+
+            response = chat.send_message_stream(
+                message=[
+                    prompt,
+                    uploaded_video
+                ]
+            )
+
+        # ---------------- Text ----------------
+
+        else:
+
+            response = chat.send_message_stream(
+                message=prompt
+            )
+
+        for chunk in response:
+
+            if chunk.text:
+                yield chunk.text
+
+    finally:
+
+        if video is not None:
+
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+
+
+
+
+
+
+
+
+
+
+
+
+
+            import streamlit as st
+from streamlit_card import card
+from st_copy import copy_button
+from PIL import Image
+import json
+import os
+from chatbot import create_chat, stream_response
+from utils import (
+    add_message,
+    export_chat,
+    conversation_stats,
+    get_last_response,
+    load_history,
+    save_history
+)
+
+#=============page config===============
+st.set_page_config(
+    page_title="AI Studio",
+    page_icon="🤖",
+    layout="centered"
+    )
+
+#================Initialize===============
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "selected_model" not in st.session_state:
+    st.session_state.selected_model = "Gemini 2.5 Flash"
+if "uploaded_image" not in st.session_state:
+    st.session_state.uploaded_image = None
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = load_history()
+if "page" not in st.session_state:
+    st.session_state.page = "chat"
+if "current_chat_index" not in st.session_state:
+    st.session_state.current_chat_index = None
+if "chat" not in st.session_state:
+    try:
+        # Initialize settings first
+        if "temperature" not in st.session_state:
+            st.session_state.temperature = 0.7
+
+        if "top_p" not in st.session_state:
+            st.session_state.top_p = 0.9
+
+        if "top_k" not in st.session_state:
+            st.session_state.top_k = 40
+
+        if "max_tokens" not in st.session_state:
+            st.session_state.max_tokens = 1024
+
+        # Then create chat
+        if "chat" not in st.session_state:
+            try:
+                st.session_state.chat = create_chat(
+                    temperature=st.session_state.temperature,
+                    top_p=st.session_state.top_p,
+                    top_k=st.session_state.top_k,
+                    max_tokens=st.session_state.max_tokens
+                )
+            except Exception as e:
+                st.error(f"Failed to initialize Gemini: {e}")
+                st.stop()
+    except Exception as e:
+        st.error(f"Failed to initialize Gemini: {e}")
+        st.stop()
+if "temperature" not in st.session_state:
+    st.session_state.temperature = 0.7
+
+if "top_p" not in st.session_state:
+    st.session_state.top_p = 0.9
+
+if "top_k" not in st.session_state:
+    st.session_state.top_k = 40
+
+if "max_tokens" not in st.session_state:
+    st.session_state.max_tokens = 1024
+
+#===================top====================
+c1, c2, c3, c4, = st.columns([8,1,1,1])
+with c1:
+    col1, col2,  = st.columns([5,1.5])
+
+    # Display selected model
+    col1.markdown(f"###  {st.session_state.selected_model}")
+    with col2:
+        with st.popover("Models"):
+            st.radio(
+                "Select Model",
+                [
+                    "Gemini 3.1 Flash Lite",
+                    "Gemini 2.5 Pro",
+                    "Gemini 2.5 Flash Lite",
+                    "Gemini 2.5 Flash"
+                ],
+                key="selected_model"
+            )
+
+with c2:
+    with st.popover("⚙"):
+        st.subheader("🎛️Generation Settings")
+
+        st.session_state.temperature = st.slider(
+        "Temperature",
+        0.0,
+        2.0,
+        st.session_state.temperature
+    )
+
+        st.session_state.top_p = st.slider(
+            "Top P",
+            0.0,
+            1.0,
+            st.session_state.top_p
+        )
+
+        st.session_state.top_k = st.slider(
+            "Top K",
+            1,
+            100,
+            st.session_state.top_k
+        )
+
+        st.session_state.max_tokens = st.slider(
+            "Maximum Output Tokens",
+            128,
+            4096,
+            st.session_state.max_tokens
+        )
+                
+
+with c3:
+    st.button("🔔")
+
+with c4:
+    st.button("👤")
+
+st.divider()
+
+#=================side bar===============
+with st.sidebar:
+    st.title("🤖Neha AI Studio")
+    st.caption("v2.4 pro")
+
+    
+    if st.button("➕ New Chat", use_container_width=True):
+
+        st.session_state.page = "chat"      # <-- ADD THIS
+        st.session_state.current_chat_index = None
+
+        # Clear current conversation
+        st.session_state.messages = []
+
+        # Create a fresh chat
+        st.session_state.chat = create_chat(
+            temperature=st.session_state.temperature,
+            top_p=st.session_state.top_p,
+            top_k=st.session_state.top_k,
+            max_tokens=st.session_state.max_tokens
+        )
+
+        st.rerun()
+
+    if st.button("📊 Analytics", use_container_width=True):
+
+        if st.session_state.page == "analytics":
+            st.session_state.page = "chat"
+        else:
+            st.session_state.page = "analytics"
+
+        st.rerun()
+
+
+
+    search = st.text_input(
+    "",
+    placeholder="🔍 Search History"
+    )
+
+    if st.button("🗑️ Clear All", use_container_width=True):
+            st.session_state.chat_history = []
+            save_history(st.session_state.chat_history)
+
+            st.session_state.messages = []
+
+            st.session_state.chat = create_chat(
+                temperature=st.session_state.temperature,
+                top_p=st.session_state.top_p,
+                top_k=st.session_state.top_k,
+                max_tokens=st.session_state.max_tokens
+            )
+
+            st.rerun()
+
+    st.subheader("🕒 Recent Chats")
+
+    history = list(reversed(st.session_state.chat_history))
+
+    for i, chat in enumerate(history):
+
+        chat_index = len(st.session_state.chat_history) - 1 - i
+
+        
+        col1, col2 = st.columns([9, 1])
+        # Open Chat
+        title = chat["title"]
+        if len(title) > 28:
+            title = title[:28] + "..."
+
+        with col1:
+            if st.button(
+                f" {title}",
+                key=f"history_{chat_index}",
+                #use_container_width=True
+            ):
+                st.session_state.messages = chat["messages"].copy()
+                st.rerun()
+
+        # Three dots menu
+        with col2:
+            with st.popover("⋮"):
+
+                if st.button(
+                    "✏️ Rename",
+                    key=f"rename_{chat_index}",
+                    use_container_width=True
+                ):
+                    st.session_state.rename_index = chat_index
+
+                if st.button(
+                    "🗑 Delete",
+                    key=f"delete_{chat_index}",
+                    use_container_width=True
+                ):
+                    del st.session_state.chat_history[chat_index]
+                    save_history(st.session_state.chat_history)
+                    st.rerun()
+
+
+                with st.popover("💾 Export Chat", use_container_width=True):
+
+                    export_format = st.radio(
+                        "Export As",
+                        ["JSON", "Plain Text", "Markdown"],
+                        key=f"export_format_{chat_index}"
+                    )
+
+                    if export_format == "JSON":
+                        export_data = export_chat(st.session_state.messages)
+                        filename = "chat_history.json"
+                        mime = "application/json"
+
+                    elif export_format == "Plain Text":
+                        export_data = "\n\n".join(
+                            f"{m['role'].upper()}:\n{m['message']}"
+                            for m in st.session_state.messages
+                        )
+                        filename = "chat_history.txt"
+                        mime = "text/plain"
+
+                    else:
+                        export_data = "\n\n".join(
+                            f"## {m['role'].capitalize()}\n\n{m['message']}"
+                            for m in st.session_state.messages
+                        )
+                        filename = "chat_history.md"
+                        mime = "text/markdown"
+
+                    st.download_button(
+                        "⬇ Download",
+                        data=export_data,
+                        file_name=filename,
+                        mime=mime,
+                        use_container_width=True,
+                        key=f"download_{chat_index}"
+                    )
+
+                if "rename_index" in st.session_state:
+
+                    idx = st.session_state.rename_index
+
+                    new_title = st.text_input(
+                        "Rename Chat",
+                        value=st.session_state.chat_history[idx]["title"],
+                        key="rename_input"
+                    )
+
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        if st.button("Save"):
+                            st.session_state.chat_history[idx]["title"] = new_title
+                            del st.session_state.rename_index
+                            st.rerun()
+
+                    with col2:
+                        if st.button("Cancel"):
+                            del st.session_state.rename_index
+                            st.rerun()
+                                
+    
+    st.divider()
+
+
+#===============main=======================
+if st.session_state.page == "chat":
+    if len(st.session_state.messages) == 0:
+
+        st.title("Welcome to AI Chat Assistant")
+        st.caption(
+            "Ask anything and receive intelligent responses powered by Gemini. "
+            "Explore possibilities from complex coding to creative writing."
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🐍 Explain Python Decorators", use_container_width=True):
+                st.session_state.selected_prompt = "Explain Python decorators."
+
+            if st.button("📚 Summarize Machine Learning", use_container_width=True):
+                st.session_state.selected_prompt = "Summarize machine learning."
+
+            if st.button("😂 Tell me a Joke", use_container_width=True):
+                st.session_state.selected_prompt = "Tell me a joke."
+
+        with col2:
+            if st.button("💻 Generate HTML Code", use_container_width=True):
+                st.session_state.selected_prompt = "Generate HTML code."
+
+            if st.button("🗄 SQL JOIN Example", use_container_width=True):
+                st.session_state.selected_prompt = "Write a SQL JOIN example."
+
+            if st.button("🐳 Explain Docker", use_container_width=True):
+                st.session_state.selected_prompt = "Explain Docker."
+
+    
+    # cards = [
+    #     ("🐍 Python Decorators", "Learn how decorators work.", "Explain Python decorators."),
+    #     ("📚 Machine Learning", "Quick summary of ML.", "Summarize machine learning."),
+    #     ("😂 Tell me a Joke", "Need a laugh?", "Tell me a joke."),
+    #     ("💻 HTML Generator", "Generate HTML code.", "Generate HTML code."),
+    #     ("🗄 SQL JOIN", "SQL JOIN example.", "Write a SQL JOIN example."),
+    #     ("🐳 Docker", "Docker explained.", "Explain Docker."),
+    # ]
+
+    # for i in range(0, len(cards), 3):
+    #     cols = st.columns(3)
+    #     for col, (title, text, prompt) in zip(cols, cards[i:i+3]):
+    #         with col:
+    #             if card(
+    #                 title=title,
+    #                 text=text,
+    #                 key=title,
+    #             ):
+    #                 st.session_state.selected_prompt = prompt
+
+# # Row 1
+#     col1, col2, col3 = st.columns(3)
+
+#     with col1:
+#         if card(
+#             title="🐍 Python Decorators",
+#             text="Explain Python decorators.",
+#             key="python",
+#         ):
+#             st.session_state.selected_prompt = "Explain Python decorators."
+
+#     with col2:
+#         if card(
+#             title="📚 Machine Learning",
+#             text="Summarize machine learning.",
+#             key="ml",
+#         ):
+#             st.session_state.selected_prompt = "Summarize machine learning."
+
+#     with col3:
+#         if card(
+#             title="😂 Tell me a Joke",
+#             text="Tell me a joke.",
+#             key="joke",
+#         ):
+#             st.session_state.selected_prompt = "Tell me a joke."
+
+#     st.divider()
+
+#     # Row 2
+#     col4, col5, col6 = st.columns(3)
+
+#     with col4:
+#         if card(
+#             title="💻 HTML Code",
+#             text="Generate HTML code.",
+#             key="html",
+#         ):
+#             st.session_state.selected_prompt = "Generate HTML code."
+
+#     with col5:
+#         if card(
+#             title="🗄 SQL JOIN",
+#             text="Write a SQL JOIN example.",
+#             key="sql",
+#         ):
+#             st.session_state.selected_prompt = "Write a SQL JOIN example."
+
+#     with col6:
+#         if card(
+#             title="🐳 Docker",
+#             text="Explain Docker.",
+#             key="docker",
+#         ):
+#             st.session_state.selected_prompt = "Explain Docker."
+ 
+
+    for i, message in enumerate(st.session_state.messages):
+        avatar = "🧑" if message["role"] == "user" else "🤖"
+        with st.chat_message(message["role"], avatar=avatar):
+            st.markdown(message["message"])
+
+            # Assistant action bar
+            if message["role"] == "assistant":
+
+                c1, c2, c3, c4, c5, c6 = st.columns([0.6, 0.6, 0.6, 0.6, 0.6, 7])
+
+               #Copy
+            
+                with c1:
+                    copy_button(
+                    message["message"]
+                )
+
+                # Summary
+                with c2:
+                    if st.button(":material/summarize:", key=f"summary_btn_{i}"):
+
+                        summary = ""
+
+                        with st.spinner(""):
+                            for chunk in stream_response(
+                                st.session_state.chat,
+                                f"Summarize the following:\n\n{message['message']}"
+                            ):
+                                summary += chunk
+
+                        st.session_state[f"summary_{i}"] = summary
+
+                # Regenerate (placeholder)
+                with c3:
+                    st.button(
+                        ":material/refresh:",
+                        key=f"regen_{i}",
+                        help="Regenerate"
+                    )
+
+                # Like
+                with c4:
+                    st.button(
+                        ":material/thumb_up:",
+                        key=f"like_{i}",
+                        help="Like"
+                    )
+
+                with c5:
+                    st.button(
+                        ":material/thumb_down:",
+                        key=f"dislike_{i}",
+                        help="Dislike"
+                    )
+
+                # Show summary
+                if f"summary_{i}" in st.session_state:
+                    st.info(st.session_state[f"summary_{i}"])
+            
+
+
+#===============Chat Input======================
+chat = st.chat_input(
+    "🔍 Ask anything...",
+    accept_file=True,
+    file_type=["png", "jpg", "jpeg",             #image
+       "mp4", "mov", "avi", "mkv", "webm"]      #video
+)
+
+prompt = None
+image = None
+video = None
+
+if chat:
+    prompt = chat.text
+
+    if chat.files:
+        uploaded_file = chat.files[0]
+
+        # Image
+        if uploaded_file.type.startswith("image"):
+            image = Image.open(uploaded_file)
+
+        # Video
+        elif uploaded_file.type.startswith("video"):
+            video = uploaded_file
+
+# Handle quick prompt buttons
+if "selected_prompt" in st.session_state:
+    prompt = st.session_state.pop("selected_prompt")
+
+# Continue if there is either text or an image
+if prompt or image or video:
+
+    # Show user message
+    with st.chat_message("user", avatar="🧑"):
+
+        if image:
+            st.image(image, width=250)
+
+        if video:
+            st.video(video, width=250)
+
+        if prompt:
+            st.markdown(prompt)
+
+    # Save user message
+    if prompt:
+        message = prompt
+    elif image:
+        message = "[Image]"
+    elif video:
+        message = "[Video]"
+    else:
+        message = ""
+
+    add_message(
+        st.session_state.messages,
+        "user",
+        message
+    )
+
+    # Create chat title
+    title = prompt if prompt else "Image Chat"
+
+    if len(title) > 30:
+        title = title[:30] + "..."
+
+    if st.session_state.current_chat_index is None:
+
+        st.session_state.chat_history.append({
+            "title": title,
+            "messages": []
+        })
+
+        save_history(st.session_state.chat_history)
+
+        st.session_state.current_chat_index = (
+            len(st.session_state.chat_history) - 1
+        )
+
+    # Update the cureent chat
+    st.session_state.chat_history[
+        st.session_state.current_chat_index
+    ]["messages"] = st.session_state.messages.copy()
+
+    save_history(st.session_state.chat_history)
+
+    # Assistant response
+    with st.chat_message("assistant", avatar="🤖"):
+
+        placeholder = st.empty()
+        full_response = ""
+
+        try:
+            with st.spinner("Thinking..."):
+
+                # If image exists, send both image and prompt
+                for chunk in stream_response(
+                    st.session_state.chat,
+                    prompt if prompt else "",
+                    image,
+                    video
+                ):
+                    full_response += chunk
+                    placeholder.markdown(full_response + "▌")
+
+            placeholder.markdown(full_response)
+
+            add_message(
+                st.session_state.messages,
+                "assistant",
+                full_response
+            )
+
+            # Update history
+            st.session_state.chat_history[
+            st.session_state.current_chat_index
+            ]["messages"] = st.session_state.messages.copy()
+
+            save_history(st.session_state.chat_history)
+
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"Error: {e}")
+    
+#================= Analytics Page =================
+if st.session_state.page == "analytics":
+
+    st.title("📊 Conversation Analytics")
+
+    stats = conversation_stats(st.session_state.messages)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric("💬 Total Messages", stats["Total Messages"])
+        st.metric("👤 User Messages", stats["User Messages"])
+        st.metric("🤖 AI Messages", stats["AI Messages"])
+
+    with col2:
+        st.metric("📝 Total Words", stats["Total Words"])
+        st.metric("⏱ Duration", stats["Conversation Duration"])
