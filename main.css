@@ -1,0 +1,53 @@
+/* ================= Buttons ================= */
+
+.stButton > button {
+    border-radius: 12px;
+    height: 45px;
+    font-weight: 600;
+    transition: all .2s ease;
+}
+
+.stButton > button:hover {
+    transform: translateY(-2px);
+}
+
+/* ================= Sidebar ================= */
+
+section[data-testid="stSidebar"] {
+    border-right: 1px solid #E5E7EB;
+}
+
+/* ================= Chat ================= */
+
+div[data-testid="stChatMessage"] {
+    border-radius: 16px;
+    padding: 10px;
+}
+
+/* ================= Containers ================= */
+
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    border-radius: 16px;
+}
+
+/* ================= Metrics ================= */
+
+div[data-testid="stMetric"] {
+    text-align: center;
+}
+
+/* ================= Search ================= */
+
+input {
+    border-radius: 10px !important;
+}
+
+/* ================= Scrollbar ================= */
+
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+    border-radius: 10px;
+}

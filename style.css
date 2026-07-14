@@ -1,0 +1,18 @@
+body {
+    background-color: #f5f5f5;
+}
+
+h1 {
+    text-align: center;
+}
+
+p {
+     text-align: center;
+}
+
+.stButton > button {
+    background-color: #8ea2de;
+    color: white;
+    border-radius: 10px;
+}
+

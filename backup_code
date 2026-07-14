@@ -1,212 +1,130 @@
-#import google.generativeai as genai
-from google import genai
-from config import API_KEY, MODEL_NAME
-import os
-# Configure Gemini
-#genai.configure(api_key=API_KEY)
-
-
-client = genai.Client(api_key=API_KEY)
-
-def create_chat(temperature, top_p, top_k, max_tokens):
-    generation_config = {
-        "temperature": temperature,
-        "top_p": top_p,
-        "top_k": top_k,
-        "max_output_tokens": max_tokens,
-    }
-
-    model = genai.GenerativeModel(
-        model_name=MODEL_NAME,
-        generation_config=generation_config,
-    )
-
-    return model.start_chat(history=[])
-
-
-def stream_response(chat, prompt, image=None, video=None):
-    
-    try:
-        if image is not None:
-            response = chat.send_message(
-                [prompt, image],
-                stream=True
-            )
-        elif video is not None:
-            response = chat.send_message(
-                [prompt, video],
-                stream=True
-            )
-        else:
-            response = chat.send_message(
-                prompt,
-                stream=True
-            )
-
-        for chunk in response:
-            text = getattr(chunk, "text", "")
-            if text:
-                yield text
-
-    except Exception as e:
-        raise RuntimeError(f"Gemini API Error: {e}")
-    
-
-
-from google import genai
-from config import API_KEY, MODEL_NAME
-from PIL import Image
-import tempfile
-import os
-
-client = genai.Client(api_key=API_KEY)
-
-
-def create_chat():
-    chat = client.chats.create(
-        model=MODEL_NAME
-    )
-    return chat
-
-
-def stream_response(chat, prompt="", image=None, video=None):
-
-    try:
-
-        # ---------------- Image ----------------
-
-        if image is not None:
-
-            response = chat.send_message_stream(
-                message=[prompt, image]
-            )
-
-        # ---------------- Video ----------------
-
-        elif video is not None:
-
-            suffix = os.path.splitext(video.name)[1]
-
-            with tempfile.NamedTemporaryFile(
-                delete=False,
-                suffix=suffix
-            ) as temp:
-
-                temp.write(video.read())
-
-                temp_path = temp.name
-
-            uploaded_video = client.files.upload(
-                file=temp_path
-            )
-
-            response = chat.send_message_stream(
-                message=[
-                    prompt,
-                    uploaded_video
-                ]
-            )
-
-        # ---------------- Text ----------------
-
-        else:
-
-            response = chat.send_message_stream(
-                message=prompt
-            )
-
-        for chunk in response:
-
-            if chunk.text:
-                yield chunk.text
-
-    finally:
-
-        if video is not None:
-
-            try:
-                os.remove(temp_path)
-            except:
-                pass
-
-
-
-
-
-
-
-
-
-
-
-
-
-            import streamlit as st
-from streamlit_card import card
+import streamlit as st
 from st_copy import copy_button
+import pandas as pd
+import matplotlib.pyplot as plt
 from PIL import Image
 import json
 import os
-from chatbot import create_chat, stream_response
+import shutil
+import tempfile
+import time
+import re
+from chatbot import (
+    create_chat,
+    stream_response,
+    generate_chat_title
+)
+from auth import login_user, register_user
+from streamlit_cookies_manager import EncryptedCookieManager
+from database import (
+    create_conversation,
+    get_conversations,
+    get_messages,
+    save_message,
+    rename_conversation,
+    delete_conversation,
+    dashboard_stats,
+    delete_all_conversations,
+    pin_conversation,
+    update_message
+)
 from utils import (
     add_message,
-    export_chat,
+    export_json,
+    export_txt,
+    export_md,
+    export_docx,
+    export_pdf,
     conversation_stats,
-    get_last_response,
-    load_history,
-    save_history
-)
+    get_last_response
 
-#=============page config===============
+)
+from dotenv import load_dotenv
+
+load_dotenv()
+# ================= Page Config =================
 st.set_page_config(
     page_title="AI Studio",
     page_icon="🤖",
-    layout="centered"
-    )
+    layout="centered",
+)
 
-#================Initialize===============
+# ================= Persistent uploads folder =================
+# NOTE: images/videos/documents used to be saved to a tempfile and then
+# deleted right after the AI response (see old `finally:` block). That
+# meant the file disappeared from chat history the moment you refreshed
+# the page. We now save uploads here permanently instead.
+UPLOAD_DIR = os.path.join(os.getcwd(), "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+def save_uploaded_file(uploaded_file):
+    """Save a Streamlit UploadedFile to a permanent, unique path and
+    return that path. Using this instead of tempfile.NamedTemporaryFile
+    means the file survives across reruns/sessions."""
+    suffix = os.path.splitext(uploaded_file.name)[1]
+    safe_name = f"{int(time.time() * 1000)}_{uploaded_file.name}"
+    dest_path = os.path.join(UPLOAD_DIR, safe_name)
+
+    with open(dest_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+
+    return dest_path
+
+
+# CSS load function
+def load_css(file_name):
+    with open(file_name) as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+# ================= Cookies =================
+cookie_password = os.getenv("COOKIE_PASSWORD")
+
+cookies = EncryptedCookieManager(
+    prefix="neha_ai_",
+    password=cookie_password,
+)
+
+if not cookies.ready():
+    st.stop()
+
+# ================= Session State =================
+if "current_conversation" not in st.session_state:
+    st.session_state.current_conversation = None
+
+if "user_name" not in st.session_state:
+    st.session_state.user_name = ""
+
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+if "user_id" not in st.session_state:
+    st.session_state.user_id = None
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "hidden_conversations" not in st.session_state:
+    st.session_state.hidden_conversations = []
+
 if "selected_model" not in st.session_state:
-    st.session_state.selected_model = "Gemini 2.5 Flash"
+    st.session_state.selected_model = "Gemini 3.1 Flash Lite"
+
 if "uploaded_image" not in st.session_state:
     st.session_state.uploaded_image = None
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = load_history()
+
 if "page" not in st.session_state:
     st.session_state.page = "chat"
-if "current_chat_index" not in st.session_state:
-    st.session_state.current_chat_index = None
-if "chat" not in st.session_state:
-    try:
-        # Initialize settings first
-        if "temperature" not in st.session_state:
-            st.session_state.temperature = 0.7
 
-        if "top_p" not in st.session_state:
-            st.session_state.top_p = 0.9
+if "web_search" not in st.session_state:
+    st.session_state.web_search = False
 
-        if "top_k" not in st.session_state:
-            st.session_state.top_k = 40
+if "auth_page" not in st.session_state:
+    st.session_state.auth_page = "login"
 
-        if "max_tokens" not in st.session_state:
-            st.session_state.max_tokens = 1024
-
-        # Then create chat
-        if "chat" not in st.session_state:
-            try:
-                st.session_state.chat = create_chat(
-                    temperature=st.session_state.temperature,
-                    top_p=st.session_state.top_p,
-                    top_k=st.session_state.top_k,
-                    max_tokens=st.session_state.max_tokens
-                )
-            except Exception as e:
-                st.error(f"Failed to initialize Gemini: {e}")
-                st.stop()
-    except Exception as e:
-        st.error(f"Failed to initialize Gemini: {e}")
-        st.stop()
 if "temperature" not in st.session_state:
     st.session_state.temperature = 0.7
 
@@ -219,87 +137,155 @@ if "top_k" not in st.session_state:
 if "max_tokens" not in st.session_state:
     st.session_state.max_tokens = 1024
 
-#===================top====================
-c1, c2, c3, c4, = st.columns([8,1,1,1])
-with c1:
-    col1, col2,  = st.columns([5,1.5])
-
-    # Display selected model
-    col1.markdown(f"###  {st.session_state.selected_model}")
-    with col2:
-        with st.popover("Models"):
-            st.radio(
-                "Select Model",
-                [
-                    "Gemini 3.1 Flash Lite",
-                    "Gemini 2.5 Pro",
-                    "Gemini 2.5 Flash Lite",
-                    "Gemini 2.5 Flash"
-                ],
-                key="selected_model"
-            )
-
-with c2:
-    with st.popover("⚙"):
-        st.subheader("🎛️Generation Settings")
-
-        st.session_state.temperature = st.slider(
-        "Temperature",
-        0.0,
-        2.0,
-        st.session_state.temperature
-    )
-
-        st.session_state.top_p = st.slider(
-            "Top P",
-            0.0,
-            1.0,
-            st.session_state.top_p
-        )
-
-        st.session_state.top_k = st.slider(
-            "Top K",
-            1,
-            100,
-            st.session_state.top_k
-        )
-
-        st.session_state.max_tokens = st.slider(
-            "Maximum Output Tokens",
-            128,
-            4096,
-            st.session_state.max_tokens
-        )
-                
-
-with c3:
-    st.button("🔔")
-
-with c4:
-    st.button("👤")
-
-st.divider()
-
-#=================side bar===============
-with st.sidebar:
-    st.title("🤖Neha AI Studio")
-    st.caption("v2.4 pro")
-
-    
-    if st.button("➕ New Chat", use_container_width=True):
-
-        st.session_state.page = "chat"      # <-- ADD THIS
-        st.session_state.current_chat_index = None
-
-        # Clear current conversation
-        st.session_state.messages = []
-
-        # Create a fresh chat
+if "chat" not in st.session_state:
+    try:
         st.session_state.chat = create_chat(
+            model_name=st.session_state.selected_model,
             temperature=st.session_state.temperature,
             top_p=st.session_state.top_p,
             top_k=st.session_state.top_k,
-            max_tokens=st.session_state.max_tokens
+            max_tokens=st.session_state.max_tokens,
+            web_search=st.session_state.web_search,
+        )
+    except Exception as e:
+        st.error(f"Failed to initialize Gemini: {e}")
+        st.stop()
+
+
+def change_chat():
+    st.session_state.chat = create_chat(
+        model_name=st.session_state.selected_model,
+        temperature=st.session_state.temperature,
+        top_p=st.session_state.top_p,
+        top_k=st.session_state.top_k,
+        max_tokens=st.session_state.max_tokens,
+        web_search=st.session_state.web_search,
+    )
+
+# ============ Restore login from cookies ============
+if (
+    not st.session_state.logged_in
+    and cookies.get("user_id")
+):
+    st.session_state.logged_in = True
+    st.session_state.user_id = int(cookies["user_id"])
+    st.session_state.user_name = cookies["user_name"]
+
+
+# =============== login ===================
+if not st.session_state.logged_in:
+
+    load_css("style.css")
+
+    page = st.session_state.auth_page
+
+    if page == "login":
+        st.markdown("""
+            <h1 style="color:black;">🤖 AI ChatBot</h1>
+            <p style="color:black;">Welcome back! Please sign in.</p>
+            """, unsafe_allow_html=True)
+
+        email = st.text_input("Email")
+
+        password = st.text_input(
+            "Password",
+            type="password"
+        )
+
+        if st.button("Login", use_container_width=True):
+
+            if not email.strip() or not password.strip():
+                st.error("⚠️ Please fill all required fields.")
+
+            else:
+                success, result = login_user(email, password)
+
+                if success:
+                    st.session_state.logged_in = True
+                    st.session_state.user = result
+                    st.session_state.user_id = result["id"]
+                    st.session_state.user_name = result["full_name"]
+
+                    cookies["user_id"] = str(result["id"])
+                    cookies["user_name"] = result["full_name"]
+                    cookies.save()
+
+                    st.success("✅ Login Successful")
+                    st.rerun()
+
+                else:
+                    st.error(result)
+
+        st.write("Don't have an account?")
+
+        if st.button("Register Here", use_container_width=True):
+            st.session_state.auth_page = "register"
+            st.rerun()
+
+    else:
+        st.title(" Register")
+
+        name = st.text_input("Full Name")
+        email = st.text_input("Email")
+        password = st.text_input("Password", type="password")
+        confirm = st.text_input("Confirm Password", type="password")
+
+        if st.button("Create Account", use_container_width=True):
+
+            if not name.strip() or not email.strip() or not password or not confirm:
+                st.error("⚠️ Please fill all required fields.")
+
+            elif password != confirm:
+                st.error("⚠️ Passwords do not match.")
+
+            else:
+                success, message = register_user(
+                    name,
+                    email,
+                    password
+                )
+
+                if success:
+                    st.success(message)
+                    st.session_state.auth_page = "login"
+                    st.rerun()
+                else:
+                    st.error(message)
+
+        if st.button("Back to Login", use_container_width=True):
+            st.session_state.auth_page = "login"
+            st.rerun()
+
+if not st.session_state.logged_in:
+    st.stop()
+# ================= Top Bar =================
+left, right = st.columns([5, 2], vertical_alignment="center")
+
+with left:
+    st.subheader("🤖 AI ChatBot")
+
+with right:
+    st.write(f" {st.session_state.selected_model}")
+# ================= Sidebar =================
+with st.sidebar:
+    st.markdown('<div class="sidebar-top">', unsafe_allow_html=True)
+
+    st.title("🤖 AI ChatBot")
+    st.caption("v2.4 Pro")
+
+    if st.button("➕ New Chat", use_container_width=True):
+
+        st.session_state.page = "chat"
+
+        st.session_state.current_conversation = None
+        st.session_state.messages = []
+        st.session_state.chat = create_chat(
+            model_name=st.session_state.selected_model,
+            temperature=st.session_state.temperature,
+            top_p=st.session_state.top_p,
+            top_k=st.session_state.top_k,
+            max_tokens=st.session_state.max_tokens,
+            web_search=st.session_state.web_search,
         )
 
         st.rerun()
@@ -313,448 +299,861 @@ with st.sidebar:
 
         st.rerun()
 
+    with st.popover("🗑️ Clear Chat", use_container_width=True):
 
+        st.warning("Delete all conversations?")
 
-    search = st.text_input(
-    "",
-    placeholder="🔍 Search History"
-    )
+        if st.button(
+            "✅ Yes, Delete All",
+            use_container_width=True,
+            key="delete_all_confirm",
+        ):
 
-    if st.button("🗑️ Clear All", use_container_width=True):
-            st.session_state.chat_history = []
-            save_history(st.session_state.chat_history)
+            delete_all_conversations(st.session_state.user_id)
 
+            st.session_state.current_conversation = None
             st.session_state.messages = []
+            st.session_state.page = "chat"
 
             st.session_state.chat = create_chat(
+                model_name=st.session_state.selected_model,
                 temperature=st.session_state.temperature,
                 top_p=st.session_state.top_p,
                 top_k=st.session_state.top_k,
-                max_tokens=st.session_state.max_tokens
+                max_tokens=st.session_state.max_tokens,
+                web_search=st.session_state.web_search,
             )
 
             st.rerun()
 
+        if st.button(
+            "❌ Cancel",
+            use_container_width=True,
+            key="delete_all_cancel",
+        ):
+            st.rerun()
+
+    search = st.text_input(
+        "Search",
+        placeholder="Search History...",
+        icon=":material/search:",
+        label_visibility="collapsed",
+    )
+    st.divider()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown('<div class="sidebar-history">', unsafe_allow_html=True)
     st.subheader("🕒 Recent Chats")
 
-    history = list(reversed(st.session_state.chat_history))
+    conversations = []
 
-    for i, chat in enumerate(history):
+    if st.session_state.user_id:
 
-        chat_index = len(st.session_state.chat_history) - 1 - i
+        conversations = get_conversations(
+            st.session_state.user_id
+        )
 
-        
-        col1, col2 = st.columns([9, 1])
-        # Open Chat
-        title = chat["title"]
+        conversations = [
+            conv
+            for conv in conversations
+            if conv["id"] not in st.session_state.hidden_conversations
+        ]
+
+    if search:
+        conversations = [
+            conv for conv in conversations
+            if search.lower() in conv["title"].lower()
+        ]
+
+    for conv in conversations:
+
+        col1, col2 = st.columns([15, 1], vertical_alignment="center")
+
+        title = conv["title"]
+
+        if conv["pinned"]:
+            title = "📌 " + title
+
         if len(title) > 28:
             title = title[:28] + "..."
 
         with col1:
             if st.button(
-                f" {title}",
-                key=f"history_{chat_index}",
-                #use_container_width=True
+                title,
+                key=f"history_{conv['id']}",
+                use_container_width=True,
             ):
-                st.session_state.messages = chat["messages"].copy()
+
+                st.session_state.current_conversation = conv["id"]
+
+                st.session_state.messages = get_messages(
+                    conv["id"]
+                )
+
+                st.session_state.chat = create_chat(
+                    model_name=st.session_state.selected_model,
+                    temperature=st.session_state.temperature,
+                    top_p=st.session_state.top_p,
+                    top_k=st.session_state.top_k,
+                    max_tokens=st.session_state.max_tokens,
+                    web_search=st.session_state.web_search,
+                )
+
                 st.rerun()
 
-        # Three dots menu
         with col2:
             with st.popover("⋮"):
+                if conv["pinned"]:
+                    if st.button(
+                        "📌 Unpin",
+                        key=f"unpin_{conv['id']}",
+                        use_container_width=True,
+                    ):
+                        pin_conversation(conv["id"], False)
+                        st.rerun()
+                else:
+                    if st.button(
+                        "📌 Pin",
+                        key=f"pin_{conv['id']}",
+                        use_container_width=True,
+                    ):
+                        pin_conversation(conv["id"], True)
+                        st.rerun()
 
                 if st.button(
                     "✏️ Rename",
-                    key=f"rename_{chat_index}",
-                    use_container_width=True
+                    key=f"rename_btn_{conv['id']}",
+                    use_container_width=True,
                 ):
-                    st.session_state.rename_index = chat_index
-
-                if st.button(
-                    "🗑 Delete",
-                    key=f"delete_{chat_index}",
-                    use_container_width=True
-                ):
-                    del st.session_state.chat_history[chat_index]
-                    save_history(st.session_state.chat_history)
+                    st.session_state.rename_id = conv["id"]
                     st.rerun()
 
+                with st.popover("🗑 Delete", use_container_width=True):
+
+                    st.warning("Delete this conversation?")
+
+                    if st.button(
+                        "✅ Yes, Delete",
+                        key=f"confirm_delete_{conv['id']}",
+                        use_container_width=True,
+                    ):
+                        delete_conversation(conv["id"])
+
+                        if st.session_state.current_conversation == conv["id"]:
+                            st.session_state.current_conversation = None
+                            st.session_state.messages = []
+
+                        st.rerun()
+
+                    if st.button(
+                        "❌ Cancel",
+                        key=f"cancel_delete_{conv['id']}",
+                        use_container_width=True,
+                    ):
+                        st.rerun()
 
                 with st.popover("💾 Export Chat", use_container_width=True):
 
                     export_format = st.radio(
                         "Export As",
-                        ["JSON", "Plain Text", "Markdown"],
-                        key=f"export_format_{chat_index}"
+                        [
+                            "PDF",
+                            "DOCX",
+                            "TXT",
+                            "Markdown",
+                            "JSON"
+                        ],
+                        key=f"export_format_{conv['id']}",
                     )
 
-                    if export_format == "JSON":
-                        export_data = export_chat(st.session_state.messages)
-                        filename = "chat_history.json"
-                        mime = "application/json"
+                    messages = get_messages(conv["id"])
 
-                    elif export_format == "Plain Text":
-                        export_data = "\n\n".join(
-                            f"{m['role'].upper()}:\n{m['message']}"
-                            for m in st.session_state.messages
-                        )
-                        filename = "chat_history.txt"
+                    if export_format == "PDF":
+                        data = export_pdf(messages)
+                        filename = "chat.pdf"
+                        mime = "application/pdf"
+
+                    elif export_format == "DOCX":
+                        data = export_docx(messages)
+                        filename = "chat.docx"
+                        mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+                    elif export_format == "TXT":
+                        data = export_txt(messages)
+                        filename = "chat.txt"
                         mime = "text/plain"
 
-                    else:
-                        export_data = "\n\n".join(
-                            f"## {m['role'].capitalize()}\n\n{m['message']}"
-                            for m in st.session_state.messages
-                        )
-                        filename = "chat_history.md"
+                    elif export_format == "Markdown":
+                        data = export_md(messages)
+                        filename = "chat.md"
                         mime = "text/markdown"
+
+                    else:
+                        data = export_json(messages)
+
+                        filename = "chat.json"
+                        mime = "application/json"
 
                     st.download_button(
                         "⬇ Download",
-                        data=export_data,
+                        data=data,
                         file_name=filename,
                         mime=mime,
                         use_container_width=True,
-                        key=f"download_{chat_index}"
+                        key=f"download_{conv['id']}"
                     )
 
-                if "rename_index" in st.session_state:
+    if "rename_id" in st.session_state:
 
-                    idx = st.session_state.rename_index
-
-                    new_title = st.text_input(
-                        "Rename Chat",
-                        value=st.session_state.chat_history[idx]["title"],
-                        key="rename_input"
-                    )
-
-                    col1, col2 = st.columns(2)
-
-                    with col1:
-                        if st.button("Save"):
-                            st.session_state.chat_history[idx]["title"] = new_title
-                            del st.session_state.rename_index
-                            st.rerun()
-
-                    with col2:
-                        if st.button("Cancel"):
-                            del st.session_state.rename_index
-                            st.rerun()
-                                
-    
-    st.divider()
-
-
-#===============main=======================
-if st.session_state.page == "chat":
-    if len(st.session_state.messages) == 0:
-
-        st.title("Welcome to AI Chat Assistant")
-        st.caption(
-            "Ask anything and receive intelligent responses powered by Gemini. "
-            "Explore possibilities from complex coding to creative writing."
+        current = next(
+            (
+                c for c in conversations
+                if c["id"] == st.session_state.rename_id
+            ),
+            None
         )
 
+        if current:
+
+            new_title = st.text_input(
+                "Rename Conversation",
+                value=current["title"],
+                key=f"rename_input_{current['id']}"
+            )
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+
+                if st.button("Save"):
+
+                    rename_conversation(
+                        st.session_state.rename_id,
+                        new_title
+                    )
+
+                    del st.session_state.rename_id
+
+                    st.rerun()
+
+            with col2:
+
+                if st.button("Cancel"):
+
+                    del st.session_state.rename_id
+
+                    st.rerun()
+    st.divider()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown('<div class="sidebar-bottom">', unsafe_allow_html=True)
+
+    with st.container(border=True):
+        c1, c2, c3 = st.columns([1, 3, 1])
+        with c1:
+            st.markdown("👤")
+        with c2:
+            st.subheader(st.session_state.user_name)
+        with c3:
+
+            with st.popover("⚙️", use_container_width=True):
+
+                with st.popover("🤖 Model", use_container_width=True):
+                    st.radio(
+                        "Choose AI Model",
+                        [
+                            "Gemini 3.1 Flash Lite",
+                            "Gemini 2.5 Flash Lite",
+                            "Gemini 2.5 Flash",
+                            "Gemini 2.5 Pro",
+                        ],
+                        key="selected_model",
+                        on_change=change_chat,
+                    )
+
+                with st.popover("🎛️ Generation", use_container_width=True):
+
+                    st.session_state.temperature = st.slider(
+                        "Temperature",
+                        0.0,
+                        2.0,
+                        st.session_state.temperature,
+                    )
+
+                    st.session_state.top_p = st.slider(
+                        "Top P",
+                        0.0,
+                        1.0,
+                        st.session_state.top_p,
+                    )
+
+                    st.session_state.top_k = st.slider(
+                        "Top K",
+                        1,
+                        100,
+                        st.session_state.top_k,
+                    )
+
+                    st.session_state.max_tokens = st.slider(
+                        "Maximum Output Tokens",
+                        128,
+                        4096,
+                        st.session_state.max_tokens,
+                    )
+
+                    if st.button("Apply Settings", use_container_width=True):
+                        change_chat()
+                        st.success("Settings applied.")
+
+                with st.popover("🚪 Logout", use_container_width=True):
+                    st.write(f"👋 {st.session_state.user_name}")
+
+                    if st.button("Logout", use_container_width=True):
+
+                        cookies["user_id"] = ""
+                        cookies["user_name"] = ""
+                        cookies.save()
+
+                        st.session_state.logged_in = False
+                        st.session_state.user = None
+                        st.session_state.user_id = None
+                        st.session_state.user_name = ""
+                        st.session_state.current_conversation = None
+                        st.session_state.messages = []
+                        st.session_state.auth_page = "login"
+
+                        st.success("✅ Successfully logged out!")
+
+                        time.sleep(1)
+
+                        st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+# ================= Main =================
+if st.session_state.page == "chat":
+    # Welcome Screen
+    if len(st.session_state.messages) == 0:
+        st.markdown(
+            f"""
+            <div style="text-align:center; margin-top:40px;">
+                <h1>Welcome, {st.session_state.user_name} </h1>
+                <p>What can I help you with today?</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.write("")
+        st.write("")
+
         col1, col2 = st.columns(2)
+
         with col1:
-            if st.button("🐍 Explain Python Decorators", use_container_width=True):
-                st.session_state.selected_prompt = "Explain Python decorators."
 
-            if st.button("📚 Summarize Machine Learning", use_container_width=True):
-                st.session_state.selected_prompt = "Summarize machine learning."
-
-            if st.button("😂 Tell me a Joke", use_container_width=True):
-                st.session_state.selected_prompt = "Tell me a joke."
-
-        with col2:
-            if st.button("💻 Generate HTML Code", use_container_width=True):
-                st.session_state.selected_prompt = "Generate HTML code."
-
-            if st.button("🗄 SQL JOIN Example", use_container_width=True):
-                st.session_state.selected_prompt = "Write a SQL JOIN example."
-
-            if st.button("🐳 Explain Docker", use_container_width=True):
-                st.session_state.selected_prompt = "Explain Docker."
-
-    
-    # cards = [
-    #     ("🐍 Python Decorators", "Learn how decorators work.", "Explain Python decorators."),
-    #     ("📚 Machine Learning", "Quick summary of ML.", "Summarize machine learning."),
-    #     ("😂 Tell me a Joke", "Need a laugh?", "Tell me a joke."),
-    #     ("💻 HTML Generator", "Generate HTML code.", "Generate HTML code."),
-    #     ("🗄 SQL JOIN", "SQL JOIN example.", "Write a SQL JOIN example."),
-    #     ("🐳 Docker", "Docker explained.", "Explain Docker."),
-    # ]
-
-    # for i in range(0, len(cards), 3):
-    #     cols = st.columns(3)
-    #     for col, (title, text, prompt) in zip(cols, cards[i:i+3]):
-    #         with col:
-    #             if card(
-    #                 title=title,
-    #                 text=text,
-    #                 key=title,
-    #             ):
-    #                 st.session_state.selected_prompt = prompt
-
-# # Row 1
-#     col1, col2, col3 = st.columns(3)
-
-#     with col1:
-#         if card(
-#             title="🐍 Python Decorators",
-#             text="Explain Python decorators.",
-#             key="python",
-#         ):
-#             st.session_state.selected_prompt = "Explain Python decorators."
-
-#     with col2:
-#         if card(
-#             title="📚 Machine Learning",
-#             text="Summarize machine learning.",
-#             key="ml",
-#         ):
-#             st.session_state.selected_prompt = "Summarize machine learning."
-
-#     with col3:
-#         if card(
-#             title="😂 Tell me a Joke",
-#             text="Tell me a joke.",
-#             key="joke",
-#         ):
-#             st.session_state.selected_prompt = "Tell me a joke."
-
-#     st.divider()
-
-#     # Row 2
-#     col4, col5, col6 = st.columns(3)
-
-#     with col4:
-#         if card(
-#             title="💻 HTML Code",
-#             text="Generate HTML code.",
-#             key="html",
-#         ):
-#             st.session_state.selected_prompt = "Generate HTML code."
-
-#     with col5:
-#         if card(
-#             title="🗄 SQL JOIN",
-#             text="Write a SQL JOIN example.",
-#             key="sql",
-#         ):
-#             st.session_state.selected_prompt = "Write a SQL JOIN example."
-
-#     with col6:
-#         if card(
-#             title="🐳 Docker",
-#             text="Explain Docker.",
-#             key="docker",
-#         ):
-#             st.session_state.selected_prompt = "Explain Docker."
- 
-
-    for i, message in enumerate(st.session_state.messages):
-        avatar = "🧑" if message["role"] == "user" else "🤖"
-        with st.chat_message(message["role"], avatar=avatar):
-            st.markdown(message["message"])
-
-            # Assistant action bar
-            if message["role"] == "assistant":
-
-                c1, c2, c3, c4, c5, c6 = st.columns([0.6, 0.6, 0.6, 0.6, 0.6, 7])
-
-               #Copy
-            
-                with c1:
-                    copy_button(
-                    message["message"]
+            if st.button(
+                "🐍 Explain Python Decorators",
+                use_container_width=True
+            ):
+                st.session_state.selected_prompt = (
+                    "Explain Python decorators."
                 )
 
-                # Summary
-                with c2:
-                    if st.button(":material/summarize:", key=f"summary_btn_{i}"):
+            if st.button(
+                "📚 Summarize Machine Learning",
+                use_container_width=True
+            ):
+                st.session_state.selected_prompt = (
+                    "Summarize machine learning."
+                )
+
+            if st.button(
+                "😂 Tell me a Joke",
+                use_container_width=True
+            ):
+                st.session_state.selected_prompt = (
+                    "Tell me a joke."
+                )
+
+        with col2:
+
+            if st.button(
+                "💻 Generate HTML Code",
+                use_container_width=True
+            ):
+                st.session_state.selected_prompt = (
+                    "Generate HTML code."
+                )
+
+            if st.button(
+                "🗄 SQL JOIN Example",
+                use_container_width=True
+            ):
+                st.session_state.selected_prompt = (
+                    "Write a SQL JOIN example."
+                )
+
+            if st.button(
+                "🐳 Explain Docker",
+                use_container_width=True
+            ):
+                st.session_state.selected_prompt = (
+                    "Explain Docker."
+                )
+
+# ================= Chat History =================
+    if st.session_state.current_conversation:
+        st.session_state.messages = get_messages(
+            st.session_state.current_conversation
+        )
+
+    for i, message in enumerate(st.session_state.messages):
+
+        avatar = "🧑" if message["role"] == "user" else "🤖"
+
+        with st.chat_message(message["role"], avatar=avatar):
+
+            text = message["message"]
+
+            if "[IMAGE]" in text:
+                path = text.replace("[IMAGE]", "")
+                if os.path.exists(path):
+                    st.image(path)
+                else:
+                    st.caption("🖼️ (image no longer available)")
+
+            elif "[VIDEO]" in text:
+                path = text.replace("[VIDEO]", "")
+                if os.path.exists(path):
+                    st.video(path)
+                else:
+                    st.caption("🎬 (video no longer available)")
+
+            elif "[DOCUMENT]" in text:
+                # Stored as [DOCUMENT]<name>::<path>
+                payload = text.replace("[DOCUMENT]", "")
+                if "::" in payload:
+                    doc_name, doc_path = payload.split("::", 1)
+                else:
+                    doc_name, doc_path = payload, None
+
+                st.markdown(f"📄 {doc_name}")
+
+                if doc_path and os.path.exists(doc_path):
+                    with open(doc_path, "rb") as f:
+                        st.download_button(
+                            "⬇ Download file",
+                            data=f.read(),
+                            file_name=doc_name,
+                            use_container_width=True,
+                            key=f"doc_dl_{i}",
+                        )
+
+            elif text.startswith("[URL]"):
+                link = text.replace("[URL]", "")
+                st.markdown(f"🔗 {link}")
+
+            else:
+                st.markdown(text)
+
+            # Assistant Action Buttons
+            # FIX: copy_button (st_copy) renders directly in the page
+            # DOM with no iframe/border, sized to sit flush next to
+            # other buttons in a `st.container(horizontal=True)`. It
+            # was being placed inside `st.columns([...])` instead, which
+            # wraps every column in its own block with extra padding -
+            # that's what made the copy icon look mis-aligned/oversized
+            # next to the summarize/regenerate buttons. Using a single
+            # horizontal container keeps all three buttons the same
+            # size and baseline.
+            if message["role"] == "assistant":
+
+                with st.container(horizontal=True, gap="small"):
+
+                    copy_button(
+                        message["message"],
+                        key=f"copy_{i}",
+                        tooltip="Copy",
+                        copied_label="Copied!"
+                    )
+
+                    if st.button(
+                        ":material/summarize:",
+                        key=f"summary_btn_{i}",
+                        help="Summarize this response",
+                    ):
 
                         summary = ""
 
-                        with st.spinner(""):
-                            for chunk in stream_response(
-                                st.session_state.chat,
-                                f"Summarize the following:\n\n{message['message']}"
-                            ):
-                                summary += chunk
+                        for chunk in stream_response(
+                            st.session_state.chat,
+                            f"Summarize the following:\n\n{message['message']}"
+                        ):
+                            summary += chunk
 
                         st.session_state[f"summary_{i}"] = summary
 
-                # Regenerate (placeholder)
-                with c3:
-                    st.button(
+                    if st.button(
                         ":material/refresh:",
                         key=f"regen_{i}",
-                        help="Regenerate"
-                    )
+                        help="Regenerate this response",
+                    ):
 
-                # Like
-                with c4:
-                    st.button(
-                        ":material/thumb_up:",
-                        key=f"like_{i}",
-                        help="Like"
-                    )
+                        previous_prompt = None
 
-                with c5:
-                    st.button(
-                        ":material/thumb_down:",
-                        key=f"dislike_{i}",
-                        help="Dislike"
-                    )
+                        for j in range(i - 1, -1, -1):
+                            if st.session_state.messages[j]["role"] == "user":
+                                previous_prompt = st.session_state.messages[j]["message"]
+                                break
 
-                # Show summary
+                        if previous_prompt:
+
+                            new_response = ""
+
+                            for chunk in stream_response(
+                                st.session_state.chat,
+                                previous_prompt,
+                            ):
+                                new_response += chunk
+
+                            update_message(
+                                st.session_state.messages[i]["id"],
+                                new_response,
+                            )
+
+                            st.rerun()
+
                 if f"summary_{i}" in st.session_state:
-                    st.info(st.session_state[f"summary_{i}"])
-            
 
+                    st.info(
+                        st.session_state[f"summary_{i}"]
+                    )
 
-#===============Chat Input======================
-chat = st.chat_input(
-    "🔍 Ask anything...",
-    accept_file=True,
-    file_type=["png", "jpg", "jpeg",             #image
-       "mp4", "mov", "avi", "mkv", "webm"]      #video
-)
-
-prompt = None
-image = None
-video = None
-
-if chat:
-    prompt = chat.text
-
-    if chat.files:
-        uploaded_file = chat.files[0]
-
-        # Image
-        if uploaded_file.type.startswith("image"):
-            image = Image.open(uploaded_file)
-
-        # Video
-        elif uploaded_file.type.startswith("video"):
-            video = uploaded_file
-
-# Handle quick prompt buttons
-if "selected_prompt" in st.session_state:
-    prompt = st.session_state.pop("selected_prompt")
-
-# Continue if there is either text or an image
-if prompt or image or video:
-
-    # Show user message
-    with st.chat_message("user", avatar="🧑"):
-
-        if image:
-            st.image(image, width=250)
-
-        if video:
-            st.video(video, width=250)
-
-        if prompt:
-            st.markdown(prompt)
-
-    # Save user message
-    if prompt:
-        message = prompt
-    elif image:
-        message = "[Image]"
-    elif video:
-        message = "[Video]"
-    else:
-        message = ""
-
-    add_message(
-        st.session_state.messages,
-        "user",
-        message
+# ================= web search =================
+def toggle_web_search():
+    st.session_state.chat = create_chat(
+        model_name=st.session_state.selected_model,
+        temperature=st.session_state.temperature,
+        top_p=st.session_state.top_p,
+        top_k=st.session_state.top_k,
+        max_tokens=st.session_state.max_tokens,
+        web_search=st.session_state.web_search_toggle,
     )
 
-    # Create chat title
-    title = prompt if prompt else "Image Chat"
 
-    if len(title) > 30:
-        title = title[:30] + "..."
+col1, col2 = st.columns([4, 1])
+with col2:
+    st.toggle(
+        "🌐 Web Search",
+        value=st.session_state.web_search,
+        key="web_search_toggle",
+        on_change=toggle_web_search,
+    )
 
-    if st.session_state.current_chat_index is None:
+    st.session_state.web_search = st.session_state.web_search_toggle
 
-        st.session_state.chat_history.append({
-            "title": title,
-            "messages": []
-        })
+# ============= chat input ====================
+if st.session_state.page == "chat":
+    chat = st.chat_input(
+        "🔍 Ask anything...",
+        accept_file=True,
+        file_type=[
+            "png", "jpg", "jpeg",
+            "mp4", "mov", "avi", "mkv", "webm",
+            "pdf", "docx", "txt", "md",
+            "csv", "xlsx", "xls", "json"
+        ]
+    )
 
-        save_history(st.session_state.chat_history)
+    prompt = None
+    image = None
+    video = None
+    url = None
+    document = None
+    document_name = None
 
-        st.session_state.current_chat_index = (
-            len(st.session_state.chat_history) - 1
-        )
+    if chat:
+        prompt = chat.text
 
-    # Update the cureent chat
-    st.session_state.chat_history[
-        st.session_state.current_chat_index
-    ]["messages"] = st.session_state.messages.copy()
+        if prompt:
+            match = re.search(r'https?://\S+', prompt)
+            if match:
+                # FIX: a bare \S+ match swallows trailing punctuation
+                # right after the link (e.g. "see https://x.com." or
+                # "(https://x.com)"), producing a broken URL.
+                url = match.group(0).rstrip(").,!?]}\"'")
 
-    save_history(st.session_state.chat_history)
+        if chat.files:
 
-    # Assistant response
-    with st.chat_message("assistant", avatar="🤖"):
+            uploaded_file = chat.files[0]
 
-        placeholder = st.empty()
-        full_response = ""
+            # FIX: files are now saved to a permanent uploads/ folder
+            # (instead of a tempfile that got deleted after one use),
+            # so photos/videos/documents keep working after a rerun
+            # or when you reopen the conversation later.
+            saved_path = save_uploaded_file(uploaded_file)
 
-        try:
-            with st.spinner("Thinking..."):
+            # FIX: some video formats (.mkv, .avi, sometimes .mov) are
+            # not reported with a "video/*" mimetype by the browser -
+            # `uploaded_file.type` can come back empty/None or as
+            # "application/octet-stream". The old code only checked
+            # `.type.startswith("video")`, so those uploads either
+            # crashed (calling .startswith on None) or silently got
+            # miscategorised as a "document". We now fall back to the
+            # file extension whenever the mimetype is missing/unclear.
+            mime = (uploaded_file.type or "").lower()
+            ext = os.path.splitext(uploaded_file.name)[1].lower()
 
-                # If image exists, send both image and prompt
-                for chunk in stream_response(
-                    st.session_state.chat,
-                    prompt if prompt else "",
-                    image,
-                    video
-                ):
-                    full_response += chunk
-                    placeholder.markdown(full_response + "▌")
+            image_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+            video_exts = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 
-            placeholder.markdown(full_response)
+            if mime.startswith("image") or ext in image_exts:
+                image = saved_path
 
-            add_message(
-                st.session_state.messages,
-                "assistant",
-                full_response
+            elif mime.startswith("video") or ext in video_exts:
+                video = saved_path
+
+            else:
+                document = saved_path
+                document_name = uploaded_file.name
+
+    # Quick Prompt Buttons
+    if "selected_prompt" in st.session_state:
+        prompt = st.session_state.pop("selected_prompt")
+
+    # ================= Send Message =================
+    # FIX: `document` was missing from this condition before, so
+    # uploading only a document (no text) silently did nothing.
+    if prompt or url or image or video or document:
+        with st.chat_message("user", avatar="🧑"):
+
+            if image:
+                st.image(image, width=250)
+
+            if video:
+                st.video(video)
+
+            if url:
+                st.markdown(f"🔗 {url}")
+
+            if prompt:
+                st.markdown(prompt)
+
+            if document:
+                st.markdown(f"📄 **{document_name}**")
+
+        # Save user message
+        parts = []
+
+        if prompt:
+            parts.append(prompt)
+
+        if url:
+            parts.append(f"[URL]{url}")
+
+        if image:
+            parts.append(f"[IMAGE]{image}")
+
+        if video:
+            parts.append(f"[VIDEO]{video}")
+
+        if document:
+            # FIX: store both the display name AND the permanent path,
+            # so the document can be re-downloaded from chat history.
+            parts.append(f"[DOCUMENT]{document_name}::{document}")
+
+        user_message = "\n".join(parts)
+        if st.session_state.current_conversation is None:
+
+            st.session_state.current_conversation = create_conversation(
+                st.session_state.user_id,
+                "New Chat"
             )
 
-            # Update history
-            st.session_state.chat_history[
-            st.session_state.current_chat_index
-            ]["messages"] = st.session_state.messages.copy()
+        save_message(
+            st.session_state.current_conversation,
+            "user",
+            user_message
+        )
 
-            save_history(st.session_state.chat_history)
+        # Chat Title
+        conversations = get_conversations(st.session_state.user_id)
 
-            st.rerun()
+        current = next(
+            (
+                c for c in conversations
+                if c["id"] == st.session_state.current_conversation
+            ),
+            None
+        )
 
-        except Exception as e:
-            st.error(f"Error: {e}")
-    
-#================= Analytics Page =================
-if st.session_state.page == "analytics":
+        if current and current["title"] == "New Chat":
+
+            if prompt:
+                title_input = prompt
+            elif image:
+                title_input = "Uploaded Image"
+            elif video:
+                title_input = "Uploaded Video"
+            elif document:
+                title_input = f"Document: {document_name}"
+            elif url:
+                title_input = url
+            else:
+                title_input = "New Conversation"
+
+            try:
+                title = generate_chat_title(
+                    st.session_state.chat,
+                    title_input
+                )
+
+                if not title:
+                    title = title_input[:30]
+
+            except Exception:
+                title = title_input[:30]
+
+            rename_conversation(
+                st.session_state.current_conversation,
+                title
+            )
+    # ================= Assistant =================
+        with st.chat_message("assistant", avatar="🤖"):
+            placeholder = st.empty()
+            full_response = ""
+
+            try:
+                ai_prompt = prompt or ""
+
+                if not ai_prompt:
+                    if image:
+                        ai_prompt = "Describe this image in detail."
+                    elif video:
+                        ai_prompt = "Describe this video."
+                    elif document:
+                        ai_prompt = "Summarize this document."
+
+                if url:
+                    ai_prompt += f"\n\nURL:\n{url}"
+
+                for chunk in stream_response(
+                    st.session_state.chat,
+                    ai_prompt,
+                    image=image,
+                    video=video,
+                    document=document,
+                ):
+
+                    full_response += chunk
+
+                    placeholder.markdown(
+                        full_response + "▌"
+                    )
+
+                placeholder.markdown(full_response)
+
+                save_message(
+                    st.session_state.current_conversation,
+                    "assistant",
+                    full_response
+                )
+
+                st.rerun()
+
+            except Exception as e:
+
+                error_text = str(e)
+
+                if "RESOURCE_EXHAUSTED" in error_text or "429" in error_text:
+                    st.error(
+                        "⚠️ This model has reached its API quota.\n\n"
+                        "Please choose another model or try again later."
+                    )
+                else:
+                    st.error(f"Error: {e}")
+
+            # FIX: removed the `finally:` block that used to delete the
+            # image/video files right after the response. Those files
+            # are referenced from saved chat history now, so deleting
+            # them broke history. Uploads live permanently in uploads/.
+
+# ================= Analytics =================
+elif st.session_state.page == "analytics":
 
     st.title("📊 Conversation Analytics")
+    st.caption("Overview of your AI chat activity")
 
-    stats = conversation_stats(st.session_state.messages)
+    stats = dashboard_stats(st.session_state.user_id)
 
-    col1, col2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
 
-    with col1:
-        st.metric("💬 Total Messages", stats["Total Messages"])
-        st.metric("👤 User Messages", stats["User Messages"])
-        st.metric("🤖 AI Messages", stats["AI Messages"])
+    with c1:
+        with st.container(border=True):
+            st.metric(
+                "💬 Total Messages",
+                stats["total_messages"]
+            )
 
-    with col2:
-        st.metric("📝 Total Words", stats["Total Words"])
-        st.metric("⏱ Duration", stats["Conversation Duration"])
+    with c2:
+        with st.container(border=True):
+            st.metric(
+                "👤 User Messages",
+                stats["user_messages"]
+            )
+
+    with c3:
+        with st.container(border=True):
+            st.metric(
+                "🤖 AI Messages",
+                stats["ai_messages"]
+            )
+
+    st.write("")
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        with st.container(border=True):
+            st.metric(
+                "📝 Total Words",
+                stats["total_words"]
+            )
+
+    with c2:
+        with st.container(border=True):
+            st.metric(
+                "💬 Conversations",
+                stats["total_conversations"]
+            )
+
+    with c3:
+        with st.container(border=True):
+            st.metric(
+                "⏱ Duration",
+                stats["conversation_duration"]
+            )
+
+    st.write("")
+
+    # ================= Activity =================
+
+    with st.container(border=True):
+
+        st.subheader("📈 Activity Summary")
+
+        total = max(stats["total_messages"], 1)
+
+        user_percent = round(
+            stats["user_messages"] / total * 100
+        )
+
+        ai_percent = round(
+            stats["ai_messages"] / total * 100
+        )
+
+        st.progress(stats["user_messages"] / total)
+
+        st.write(f"👤 User Messages : **{user_percent}%**")
+        st.write(f"🤖 AI Messages : **{ai_percent}%**")
+
+    st.write("")
