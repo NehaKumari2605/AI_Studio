@@ -16,6 +16,7 @@ from chatbot import (
 )
 from auth import login_user, register_user
 from login import show_login, show_register
+from sidebar import show_sidebar
 from streamlit_cookies_manager import EncryptedCookieManager
 from database import (
     create_conversation,
@@ -163,6 +164,16 @@ def change_chat():
         web_search=st.session_state.web_search,
     )
 
+def toggle_web_search():
+    st.session_state.chat = create_chat(
+        model_name=st.session_state.selected_model,
+        temperature=st.session_state.temperature,
+        top_p=st.session_state.top_p,
+        top_k=st.session_state.top_k,
+        max_tokens=st.session_state.max_tokens,
+        web_search=st.session_state.web_search_toggle,
+    )
+
 # ============ Restore login from cookies ============
 if (
     not st.session_state.logged_in
@@ -183,457 +194,104 @@ if not st.session_state.logged_in:
 
 if not st.session_state.logged_in:
     st.stop()
-# ================= Top Bar =================
-left, right = st.columns([5, 2], vertical_alignment="center")
 
-with left:
-    st.subheader("🤖 AI ChatBot")
+# ============ Load Application Assets & Sidebar ============
+load_css("main.css")
+show_sidebar(cookies)
 
-with right:
-    st.write(f" {st.session_state.selected_model}")
-# ================= Sidebar =================
-with st.sidebar:
-    st.markdown('<div class="sidebar-top">', unsafe_allow_html=True)
-
-    st.title("🤖 AI ChatBot")
-    st.caption("v2.4 Pro")
-
-    if st.button("➕ New Chat", use_container_width=True):
-
-        st.session_state.page = "chat"
-
-        st.session_state.current_conversation = None
-        st.session_state.messages = []
-        st.session_state.chat = create_chat(
-            model_name=st.session_state.selected_model,
-            temperature=st.session_state.temperature,
-            top_p=st.session_state.top_p,
-            top_k=st.session_state.top_k,
-            max_tokens=st.session_state.max_tokens,
-            web_search=st.session_state.web_search,
-        )
-
-        st.rerun()
-
-    if st.button("📊 Analytics", use_container_width=True):
-
-        if st.session_state.page == "analytics":
-            st.session_state.page = "chat"
-        else:
-            st.session_state.page = "analytics"
-
-        st.rerun()
-
-    with st.popover("🗑️ Clear Chat", use_container_width=True):
-
-        st.warning("Delete all conversations?")
-
-        if st.button(
-            "✅ Yes, Delete All",
-            use_container_width=True,
-            key="delete_all_confirm",
-        ):
-
-            delete_all_conversations(st.session_state.user_id)
-
-            st.session_state.current_conversation = None
-            st.session_state.messages = []
-            st.session_state.page = "chat"
-
-            st.session_state.chat = create_chat(
-                model_name=st.session_state.selected_model,
-                temperature=st.session_state.temperature,
-                top_p=st.session_state.top_p,
-                top_k=st.session_state.top_k,
-                max_tokens=st.session_state.max_tokens,
-                web_search=st.session_state.web_search,
-            )
-
-            st.rerun()
-
-        if st.button(
-            "❌ Cancel",
-            use_container_width=True,
-            key="delete_all_cancel",
-        ):
-            st.rerun()
-
-    search = st.text_input(
-        "Search",
-        placeholder="Search History...",
-        icon=":material/search:",
-        label_visibility="collapsed",
-    )
-    st.divider()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown('<div class="sidebar-history">', unsafe_allow_html=True)
-    st.subheader("🕒 Recent Chats")
-
-    conversations = []
-
-    if st.session_state.user_id:
-
-        conversations = get_conversations(
-            st.session_state.user_id
-        )
-
-        conversations = [
-            conv
-            for conv in conversations
-            if conv["id"] not in st.session_state.hidden_conversations
-        ]
-
-    if search:
-        conversations = [
-            conv for conv in conversations
-            if search.lower() in conv["title"].lower()
-        ]
-
-    for conv in conversations:
-
-        col1, col2 = st.columns([15, 1], vertical_alignment="center")
-
-        title = conv["title"]
-
-        if conv["pinned"]:
-            title = "📌 " + title
-
-        if len(title) > 28:
-            title = title[:28] + "..."
-
-        with col1:
-            if st.button(
-                title,
-                key=f"history_{conv['id']}",
-                use_container_width=True,
-            ):
-
-                st.session_state.current_conversation = conv["id"]
-
-                st.session_state.messages = get_messages(
-                    conv["id"]
-                )
-
-                st.session_state.chat = create_chat(
-                    model_name=st.session_state.selected_model,
-                    temperature=st.session_state.temperature,
-                    top_p=st.session_state.top_p,
-                    top_k=st.session_state.top_k,
-                    max_tokens=st.session_state.max_tokens,
-                    web_search=st.session_state.web_search,
-                )
-
-                st.rerun()
-
-        with col2:
-            with st.popover("⋮"):
-                if conv["pinned"]:
-                    if st.button(
-                        "📌 Unpin",
-                        key=f"unpin_{conv['id']}",
-                        use_container_width=True,
-                    ):
-                        pin_conversation(conv["id"], False)
-                        st.rerun()
-                else:
-                    if st.button(
-                        "📌 Pin",
-                        key=f"pin_{conv['id']}",
-                        use_container_width=True,
-                    ):
-                        pin_conversation(conv["id"], True)
-                        st.rerun()
-
-                if st.button(
-                    "✏️ Rename",
-                    key=f"rename_btn_{conv['id']}",
-                    use_container_width=True,
-                ):
-                    st.session_state.rename_id = conv["id"]
-                    st.rerun()
-
-                with st.popover("🗑 Delete", use_container_width=True):
-
-                    st.warning("Delete this conversation?")
-
-                    if st.button(
-                        "✅ Yes, Delete",
-                        key=f"confirm_delete_{conv['id']}",
-                        use_container_width=True,
-                    ):
-                        delete_conversation(conv["id"])
-
-                        if st.session_state.current_conversation == conv["id"]:
-                            st.session_state.current_conversation = None
-                            st.session_state.messages = []
-
-                        st.rerun()
-
-                    if st.button(
-                        "❌ Cancel",
-                        key=f"cancel_delete_{conv['id']}",
-                        use_container_width=True,
-                    ):
-                        st.rerun()
-
-                with st.popover("💾 Export Chat", use_container_width=True):
-
-                    export_format = st.radio(
-                        "Export As",
-                        [
-                            "PDF",
-                            "DOCX",
-                            "TXT",
-                            "Markdown",
-                            "JSON"
-                        ],
-                        key=f"export_format_{conv['id']}",
-                    )
-
-                    messages = get_messages(conv["id"])
-
-                    if export_format == "PDF":
-                        data = export_pdf(messages)
-                        filename = "chat.pdf"
-                        mime = "application/pdf"
-
-                    elif export_format == "DOCX":
-                        data = export_docx(messages)
-                        filename = "chat.docx"
-                        mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-
-                    elif export_format == "TXT":
-                        data = export_txt(messages)
-                        filename = "chat.txt"
-                        mime = "text/plain"
-
-                    elif export_format == "Markdown":
-                        data = export_md(messages)
-                        filename = "chat.md"
-                        mime = "text/markdown"
-
-                    else:
-                        data = export_json(messages)
-
-                        filename = "chat.json"
-                        mime = "application/json"
-
-                    st.download_button(
-                        "⬇ Download",
-                        data=data,
-                        file_name=filename,
-                        mime=mime,
-                        use_container_width=True,
-                        key=f"download_{conv['id']}"
-                    )
-
-    if "rename_id" in st.session_state:
-
-        current = next(
-            (
-                c for c in conversations
-                if c["id"] == st.session_state.rename_id
-            ),
-            None
-        )
-
-        if current:
-
-            new_title = st.text_input(
-                "Rename Conversation",
-                value=current["title"],
-                key=f"rename_input_{current['id']}"
-            )
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-
-                if st.button("Save"):
-
-                    rename_conversation(
-                        st.session_state.rename_id,
-                        new_title
-                    )
-
-                    del st.session_state.rename_id
-
-                    st.rerun()
-
-            with col2:
-
-                if st.button("Cancel"):
-
-                    del st.session_state.rename_id
-
-                    st.rerun()
-    st.divider()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown('<div class="sidebar-bottom">', unsafe_allow_html=True)
-
-    with st.container(border=True):
-        c1, c2, c3 = st.columns([1, 3, 1])
-        with c1:
-            st.markdown("👤")
-        with c2:
-            st.subheader(st.session_state.user_name)
-        with c3:
-
-            with st.popover("⚙️", use_container_width=True):
-
-                with st.popover("🤖 Model", use_container_width=True):
-                    st.radio(
-                        "Choose AI Model",
-                        [
-                            "Gemini 3.1 Flash Lite",
-                            "Gemini 2.5 Flash Lite",
-                            "Gemini 2.5 Flash",
-                            "Gemini 2.5 Pro",
-                        ],
-                        key="selected_model",
-                        on_change=change_chat,
-                    )
-
-                with st.popover("🎛️ Generation", use_container_width=True):
-
-                    st.session_state.temperature = st.slider(
-                        "Temperature",
-                        0.0,
-                        2.0,
-                        st.session_state.temperature,
-                    )
-
-                    st.session_state.top_p = st.slider(
-                        "Top P",
-                        0.0,
-                        1.0,
-                        st.session_state.top_p,
-                    )
-
-                    st.session_state.top_k = st.slider(
-                        "Top K",
-                        1,
-                        100,
-                        st.session_state.top_k,
-                    )
-
-                    st.session_state.max_tokens = st.slider(
-                        "Maximum Output Tokens",
-                        128,
-                        4096,
-                        st.session_state.max_tokens,
-                    )
-
-                    if st.button("Apply Settings", use_container_width=True):
-                        change_chat()
-                        st.success("Settings applied.")
-
-                with st.popover("🚪 Logout", use_container_width=True):
-                    st.write(f"👋 {st.session_state.user_name}")
-
-                    if st.button("Logout", use_container_width=True):
-
-                        cookies["user_id"] = ""
-                        cookies["user_name"] = ""
-                        cookies.save()
-
-                        st.session_state.logged_in = False
-                        st.session_state.user = None
-                        st.session_state.user_id = None
-                        st.session_state.user_name = ""
-                        st.session_state.current_conversation = None
-                        st.session_state.messages = []
-                        st.session_state.auth_page = "login"
-
-                        st.success("✅ Successfully logged out!")
-
-                        time.sleep(1)
-
-                        st.rerun()
-
-    st.markdown("</div>", unsafe_allow_html=True)
 # ================= Main =================
 if st.session_state.page == "chat":
-    # Welcome Screen
+    # Sync messages with current conversation state
+    if st.session_state.current_conversation:
+        st.session_state.messages = get_messages(st.session_state.current_conversation)
+    else:
+        st.session_state.messages = []
+
+    # Top Control Bar (Model Picker & Web Search Toggle)
+    col_nav1, col_nav2 = st.columns([4, 1], vertical_alignment="center")
+
+    with col_nav1:
+        def _on_top_model_change():
+            st.session_state.selected_model = st.session_state.top_selected_model
+            change_chat()
+
+        top_model_options = [
+            "Gemini 3.1 Flash Lite",
+            "Gemini 2.5 Flash Lite",
+            "Gemini 2.5 Flash",
+            "Gemini 2.5 Pro",
+        ]
+        top_idx = top_model_options.index(st.session_state.selected_model) if st.session_state.selected_model in top_model_options else 0
+
+        st.selectbox(
+            "Model",
+            top_model_options,
+            index=top_idx,
+            key="top_selected_model",
+            on_change=_on_top_model_change,
+            label_visibility="collapsed",
+        )
+
+    with col_nav2:
+        st.toggle(
+            "🌐 Web Search",
+            value=st.session_state.web_search,
+            key="web_search_toggle",
+            on_change=toggle_web_search,
+        )
+        st.session_state.web_search = st.session_state.web_search_toggle
+
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+
+    # Welcome Screen when Chat is empty
     if len(st.session_state.messages) == 0:
         st.markdown(
             f"""
-            <div style="text-align:center; margin-top:40px;">
-                <h1>Welcome, {st.session_state.user_name} </h1>
-                <p>What can I help you with today?</p>
+            <div class="welcome-hero">
+                <h1>Hello, {st.session_state.user_name} 👋</h1>
+                <p>What would you like to explore today?</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        st.write("")
-        st.write("")
+        st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
 
         col1, col2 = st.columns(2)
 
         with col1:
+            st.markdown('<div class="suggestion-card-btn">', unsafe_allow_html=True)
+            if st.button("💡 Brainstorm Strategy\nOutline a new digital product roadmap", use_container_width=True):
+                st.session_state.selected_prompt = "Help me outline a launch strategy for a new digital product idea."
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
-            if st.button(
-                "🐍 Explain Python Decorators",
-                use_container_width=True
-            ):
-                st.session_state.selected_prompt = (
-                    "Explain Python decorators."
-                )
+            st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
 
-            if st.button(
-                "📚 Summarize Machine Learning",
-                use_container_width=True
-            ):
-                st.session_state.selected_prompt = (
-                    "Summarize machine learning."
-                )
-
-            if st.button(
-                "😂 Tell me a Joke",
-                use_container_width=True
-            ):
-                st.session_state.selected_prompt = (
-                    "Tell me a joke."
-                )
+            st.markdown('<div class="suggestion-card-btn">', unsafe_allow_html=True)
+            if st.button("📝 Summarize Text\nDistill key points and action items", use_container_width=True):
+                st.session_state.selected_prompt = "Summarize the key takeaways and action items from a complex document."
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
         with col2:
+            st.markdown('<div class="suggestion-card-btn">', unsafe_allow_html=True)
+            if st.button("💻 Write & Debug Code\nPython script to analyze datasets", use_container_width=True):
+                st.session_state.selected_prompt = "Write a Python script to clean, analyze, and visualize a dataset."
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
-            if st.button(
-                "💻 Generate HTML Code",
-                use_container_width=True
-            ):
-                st.session_state.selected_prompt = (
-                    "Generate HTML code."
-                )
+            st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
 
-            if st.button(
-                "🗄 SQL JOIN Example",
-                use_container_width=True
-            ):
-                st.session_state.selected_prompt = (
-                    "Write a SQL JOIN example."
-                )
+            st.markdown('<div class="suggestion-card-btn">', unsafe_allow_html=True)
+            if st.button("🎓 Explain Concepts\nBreak down complex topics simply", use_container_width=True):
+                st.session_state.selected_prompt = "Explain quantum computing and quantum bits to a beginner using simple analogies."
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
-            if st.button(
-                "🐳 Explain Docker",
-                use_container_width=True
-            ):
-                st.session_state.selected_prompt = (
-                    "Explain Docker."
-                )
-
-# ================= Chat History =================
-    if st.session_state.current_conversation:
-        st.session_state.messages = get_messages(
-            st.session_state.current_conversation
-        )
-
+# ================= Chat History Display =================
     for i, message in enumerate(st.session_state.messages):
-
-        avatar = "🧑" if message["role"] == "user" else "🤖"
+        avatar = "🧑" if message["role"] == "user" else "✨"
 
         with st.chat_message(message["role"], avatar=avatar):
 
@@ -753,28 +411,7 @@ if st.session_state.page == "chat":
                         st.session_state[f"summary_{i}"]
                     )
 
-# ================= web search =================
-def toggle_web_search():
-    st.session_state.chat = create_chat(
-        model_name=st.session_state.selected_model,
-        temperature=st.session_state.temperature,
-        top_p=st.session_state.top_p,
-        top_k=st.session_state.top_k,
-        max_tokens=st.session_state.max_tokens,
-        web_search=st.session_state.web_search_toggle,
-    )
-
-
-col1, col2 = st.columns([4, 1])
-with col2:
-    st.toggle(
-        "🌐 Web Search",
-        value=st.session_state.web_search,
-        key="web_search_toggle",
-        on_change=toggle_web_search,
-    )
-
-    st.session_state.web_search = st.session_state.web_search_toggle
+# (Web Search toggle is now integrated into top control bar)
 
 # ============= chat input ====================
 if st.session_state.page == "chat":
@@ -943,8 +580,9 @@ if st.session_state.page == "chat":
                 title
             )
     # ================= Assistant =================
-        with st.chat_message("assistant", avatar="🤖"):
+        with st.chat_message("assistant", avatar="✨"):
             placeholder = st.empty()
+            placeholder.markdown("*✨ Neha AI is thinking...*")
             full_response = ""
 
             try:
@@ -960,6 +598,20 @@ if st.session_state.page == "chat":
 
                 if url:
                     ai_prompt += f"\n\nURL:\n{url}"
+
+                # Re-build chat context with full history up to prior turn
+                all_stored = get_messages(st.session_state.current_conversation)
+                prior_messages = all_stored[:-1] if len(all_stored) > 1 else []
+
+                st.session_state.chat = create_chat(
+                    model_name=st.session_state.selected_model,
+                    temperature=st.session_state.temperature,
+                    top_p=st.session_state.top_p,
+                    top_k=st.session_state.top_k,
+                    max_tokens=st.session_state.max_tokens,
+                    web_search=st.session_state.web_search,
+                    messages=prior_messages,
+                )
 
                 for chunk in stream_response(
                     st.session_state.chat,

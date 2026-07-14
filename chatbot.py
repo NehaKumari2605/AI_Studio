@@ -21,6 +21,43 @@ MODEL_MAP = {
 }
 
 
+def build_gemini_history(messages):
+    if not messages:
+        return []
+
+    history = []
+    last_role = None
+
+    for msg in messages:
+        role = "user" if msg["role"] == "user" else "model"
+        text = msg["message"]
+
+        # Clean tags like [IMAGE]path, [DOCUMENT]name::path, etc.
+        clean_text = re.sub(r'\[(IMAGE|VIDEO|DOCUMENT)\].*?(\n|$)', '', text).strip()
+        clean_text = re.sub(r'\[URL\]', '', clean_text).strip()
+
+        if not clean_text:
+            clean_text = "(attachment)"
+
+        if role == last_role:
+            if history:
+                prev_text = history[-1].parts[0].text
+                history[-1] = types.Content(
+                    role=role,
+                    parts=[types.Part.from_text(text=f"{prev_text}\n\n{clean_text}")]
+                )
+        else:
+            history.append(
+                types.Content(
+                    role=role,
+                    parts=[types.Part.from_text(text=clean_text)]
+                )
+            )
+            last_role = role
+
+    return history
+
+
 def create_chat(
     model_name,
     temperature,
@@ -28,6 +65,8 @@ def create_chat(
     top_k,
     max_tokens,
     web_search=False,
+    messages=None,
+    **kwargs,
 ):
 
     config = types.GenerateContentConfig(
@@ -45,10 +84,12 @@ def create_chat(
             )
         ]
 
+    history = build_gemini_history(messages) if messages else []
+
     return client.chats.create(
         model=MODEL_MAP[model_name],
         config=config,
-        history=[],
+        history=history,
     )
 
 def change_chat():
