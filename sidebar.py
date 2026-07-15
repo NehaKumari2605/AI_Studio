@@ -50,7 +50,6 @@ def _categorize_recent_chats(convs):
             groups["Older"].append(conv)
 
     return {group_name: items for group_name, items in groups.items() if items}
-st.divider()
 
 
 def show_sidebar(cookies):
