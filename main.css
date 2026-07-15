@@ -1,53 +1,374 @@
-/* ================= Buttons ================= */
+/* ==========================================================================
+   NehaGPT - Gemini & ChatGPT Inspired Modern Design System
+   ========================================================================== */
 
-.stButton > button {
-    border-radius: 12px;
-    height: 45px;
-    font-weight: 600;
-    transition: all .2s ease;
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ─── Global App Typography & Theme Base ─── */
+html, body, [class*="css"], .stApp {
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    background-color: #f8fafc !important;
+    color: #0f172a !important;
 }
 
-.stButton > button:hover {
-    transform: translateY(-2px);
+/* Hide Streamlit chrome */
+footer { visibility: hidden !important; }
+#MainMenu { visibility: hidden !important; }
+header[data-testid="stHeader"] {
+    background: rgba(248, 250, 252, 0.8) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.8) !important;
 }
 
-/* ================= Sidebar ================= */
-
-section[data-testid="stSidebar"] {
-    border-right: 1px solid #E5E7EB;
+/* ─── Main Content Container Width (Gemini & ChatGPT style: 820px) ─── */
+[data-testid="stMainBlockContainer"] {
+    max-width: 840px !important;
+    margin: 0 auto !important;
+    padding-top: 1.5rem !important;
+    padding-bottom: 7rem !important;
 }
 
-/* ================= Chat ================= */
-
-div[data-testid="stChatMessage"] {
+/* ─── Top Header Bar Controls ─── */
+.top-nav-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    margin-bottom: 20px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
     border-radius: 16px;
-    padding: 10px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
 }
 
-/* ================= Containers ================= */
-
-div[data-testid="stVerticalBlockBorderWrapper"] {
-    border-radius: 16px;
+.brand-logo-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 800;
+    font-size: 1.15rem;
+    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #d946ef 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
 
-/* ================= Metrics ================= */
-
-div[data-testid="stMetric"] {
+/* ─── Hero Welcome / Empty State ─── */
+.welcome-hero {
     text-align: center;
+    margin: 32px 0 28px 0;
 }
 
-/* ================= Search ================= */
+.welcome-hero h1 {
+    font-size: 2.2rem !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.8px !important;
+    margin-bottom: 8px !important;
+    background: linear-gradient(135deg, #0f172a 0%, #4338ca 50%, #6d28d9 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
 
-input {
+.welcome-hero p {
+    color: #64748b;
+    font-size: 1.05rem;
+    margin: 0;
+    font-weight: 500;
+}
+
+/* ─── Prompt Suggestion Grid Cards ─── */
+.suggestion-card-btn button {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 16px !important;
+    padding: 16px !important;
+    height: 100% !important;
+    min-height: 84px !important;
+    text-align: left !important;
+    font-size: 0.92rem !important;
+    font-weight: 600 !important;
+    color: #1e293b !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03) !important;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: flex-start !important;
+}
+
+.suggestion-card-btn button:hover {
+    background: #ffffff !important;
+    border-color: #6366f1 !important;
+    box-shadow: 0 8px 24px -4px rgba(99, 102, 241, 0.15) !important;
+    transform: translateY(-2px) !important;
+    color: #4f46e5 !important;
+}
+
+/* ─── Chat Messages (ChatGPT & Gemini layout) ─── */
+div[data-testid="stChatMessage"] {
+    background: transparent !important;
+    border: none !important;
+    padding: 18px 0 !important;
+    border-bottom: 1px solid #f1f5f9 !important;
+}
+
+/* User Message Styling */
+div[data-testid="stChatMessage"]:has(div[aria-label="Chat message from user"]) {
+    background: rgba(241, 245, 249, 0.6) !important;
+    border-radius: 16px !important;
+    padding: 16px 20px !important;
+    margin-bottom: 12px !important;
+    border-bottom: none !important;
+}
+
+/* Assistant Message Markdown Content */
+div[data-testid="stChatMessage"] div[data-testid="stMarkdownContainer"] p {
+    font-size: 0.98rem;
+    line-height: 1.65;
+    color: #1e293b;
+}
+
+/* Code blocks */
+pre, code {
+    font-family: 'JetBrains Mono', monospace !important;
     border-radius: 10px !important;
 }
 
-/* ================= Scrollbar ================= */
-
-::-webkit-scrollbar {
-    width: 8px;
+pre {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+    border: 1px solid #1e293b !important;
+    padding: 14px 18px !important;
 }
 
+/* ─── Sidebar Styling Base ─── */
+section[data-testid="stSidebar"] {
+    background-color: #ffffff !important;
+    border-right: 1px solid #e2e8f0 !important;
+}
+
+section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
+    padding-top: 0.8rem !important;
+    padding-left: 0.8rem !important;
+    padding-right: 0.8rem !important;
+}
+
+section[data-testid="stSidebar"] [data-testid="stSidebarHeader"] {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.2rem !important;
+}
+
+section[data-testid="stSidebar"] .stButton > button {
+    border-radius: 10px !important;
+    height: 38px !important;
+    font-weight: 500 !important;
+    font-size: 0.88rem !important;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* Primary "New Chat" button in Sidebar */
+.new-chat-btn button {
+    background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%) !important;
+    color: #ffffff !important;
+    border: none !important;
+    font-weight: 700 !important;
+    box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3) !important;
+}
+
+.new-chat-btn button:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 6px 18px rgba(79, 70, 229, 0.4) !important;
+}
+
+/* ─── Reduce Vertical Gap & Padding for Sidebar Chat Items ─── */
+.stApp section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] {
+    gap: 0.15rem !important;
+}
+
+.stApp section[data-testid="stSidebar"] div[data-testid="stElementContainer"],
+.stApp section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div,
+.stApp section[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] {
+    margin-bottom: 2px !important;
+    margin-top: 0 !important;
+    padding-bottom: 0 !important;
+    padding-top: 0 !important;
+}
+
+/* ─── Unified Single Card for Recent Chat Items ─── */
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]) {
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 8px !important;
+    padding: 0 4px !important;
+    margin-bottom: 0 !important;
+    margin-top: 0 !important;
+    align-items: center !important;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02) !important;
+}
+
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]):hover {
+    border-color: #6366f1 !important;
+    background: #f8fafc !important;
+    box-shadow: 0 3px 10px rgba(99, 102, 241, 0.08) !important;
+}
+
+/* Completely strip ALL inner button and popover borders */
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]) button,
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]) button[kind],
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]) [data-testid="stBaseButton-secondary"],
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]) [data-testid="stPopover"] button,
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]) [data-testid="stPopover"] [data-testid="stBaseButton-secondary"] {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
+    height: 30px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+/* Typography for Chat Title & Popover inside the Unified Card */
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]) button p,
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]) button span {
+    color: #334155 !important;
+    font-weight: 500 !important;
+    font-size: 0.84rem !important;
+}
+
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]) [data-testid="stPopover"] button p,
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]) [data-testid="stPopover"] button span {
+    color: #64748b !important;
+    font-weight: bold !important;
+}
+
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]) [data-testid="stPopover"] button:hover p,
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]) [data-testid="stPopover"] button:hover span {
+    color: #4f46e5 !important;
+}
+
+/* ─── Sidebar Footer User Profile Card ─── */
+.stApp section[data-testid="stSidebar"] div.sidebar-user-footer-card {
+    background: #ffffff !important;
+    border: 1.5px solid #cbd5e1 !important;
+    border-radius: 12px !important;
+    padding: 4px 10px !important;
+    margin-top: 10px !important;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04) !important;
+}
+
+.stApp section[data-testid="stSidebar"] div.sidebar-user-footer-card:hover {
+    border-color: #6366f1 !important;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1) !important;
+}
+
+/* Strip inner popover button borders inside user footer card */
+.stApp section[data-testid="stSidebar"] div.sidebar-user-footer-card [data-testid="stColumn"],
+.stApp section[data-testid="stSidebar"] div.sidebar-user-footer-card [data-testid="stElementContainer"],
+.stApp section[data-testid="stSidebar"] div.sidebar-user-footer-card [data-testid="stPopover"],
+.stApp section[data-testid="stSidebar"] div.sidebar-user-footer-card button,
+.stApp section[data-testid="stSidebar"] div.sidebar-user-footer-card [data-testid="stBaseButton-secondary"] {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
+    height: 36px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+.stApp section[data-testid="stSidebar"] div.sidebar-user-footer-card [data-testid="stPopover"] button p,
+.stApp section[data-testid="stSidebar"] div.sidebar-user-footer-card [data-testid="stPopover"] button span {
+    color: #64748b !important;
+    font-size: 1rem !important;
+}
+
+.stApp section[data-testid="stSidebar"] div.sidebar-user-footer-card [data-testid="stPopover"] button:hover p,
+.stApp section[data-testid="stSidebar"] div.sidebar-user-footer-card [data-testid="stPopover"] button:hover span {
+    color: #4f46e5 !important;
+}
+
+/* Sidebar Section Headers */
+.sidebar-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #64748b;
+    letter-spacing: 0.6px;
+    margin: 14px 0 6px 0;
+    text-transform: uppercase;
+}
+
+.sidebar-badge {
+    background: #f1f5f9;
+    color: #64748b;
+    font-size: 0.68rem;
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-weight: 700;
+}
+
+/* ─── Floating Chat Input Pill (Gemini / ChatGPT Style) ─── */
+div[data-testid="stChatInput"] {
+    max-width: 820px !important;
+    margin: 0 auto !important;
+    border-radius: 24px !important;
+    border: 1.5px solid #cbd5e1 !important;
+    background: #ffffff !important;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08) !important;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+div[data-testid="stChatInput"]:focus-within {
+    border-color: #6366f1 !important;
+    box-shadow: 0 12px 35px rgba(99, 102, 241, 0.18) !important;
+}
+
+div[data-testid="stChatInput"] textarea {
+    font-size: 0.95rem !important;
+    color: #0f172a !important;
+}
+
+/* ─── Action Buttons Bar under AI Messages ─── */
+.action-buttons-container {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.action-buttons-container .stButton > button {
+    background: #f1f5f9 !important;
+    color: #475569 !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 8px !important;
+    height: 32px !important;
+    padding: 0 10px !important;
+    font-size: 0.8rem !important;
+    box-shadow: none !important;
+}
+
+.action-buttons-container .stButton > button:hover {
+    background: #e2e8f0 !important;
+    color: #0f172a !important;
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
 ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
     border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
 }

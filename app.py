@@ -13,6 +13,8 @@ from chatbot import (
     generate_chat_title
 )
 from auth import login_user, register_user
+from login import show_login, show_register
+from sidebar import show_sidebar
 from streamlit_cookies_manager import EncryptedCookieManager
 from database import (
     create_conversation,
@@ -164,6 +166,16 @@ if "chat" not in st.session_state:
 #         use_container_width=True,
 #     )
 
+def toggle_web_search():
+    st.session_state.chat = create_chat(
+        model_name=st.session_state.selected_model,
+        temperature=st.session_state.temperature,
+        top_p=st.session_state.top_p,
+        top_k=st.session_state.top_k,
+        max_tokens=st.session_state.max_tokens,
+        web_search=st.session_state.web_search_toggle,
+    )
+
 # ============ Restore login from cookies ============
 if (
     not st.session_state.logged_in
@@ -176,110 +188,142 @@ if (
 
 # =============== login ===================
 if not st.session_state.logged_in:
+<<<<<<< HEAD
 
     load_css("style.css")
 
     if st.session_state.auth_page == "login":
+=======
+    page = st.session_state.auth_page
+    if page == "login":
+>>>>>>> v1
         show_login(login_user, cookies)
     else:
         show_register(register_user)
 
+<<<<<<< HEAD
     st.stop()
     
 # ================= Top Bar =================
 left, right = st.columns([5, 2], vertical_alignment="center")
+=======
+if not st.session_state.logged_in:
+    st.stop()
+>>>>>>> v1
 
-with left:
-    st.subheader("🤖 AI ChatBot")
+# ============ Load Application Assets & Sidebar ============
+load_css("main.css")
+show_sidebar(cookies)
 
+<<<<<<< HEAD
 with right:
     st.write(f" {st.session_state.selected_model}")
 
 # ================= Sidebar =================
 show_sidebar(cookies)
 
+=======
+>>>>>>> v1
 # ================= Main =================
 if st.session_state.page == "chat":
-    # Welcome Screen
+    # Sync messages with current conversation state
+    if st.session_state.current_conversation:
+        st.session_state.messages = get_messages(st.session_state.current_conversation)
+    else:
+        st.session_state.messages = []
+
+    # Top Control Bar (Model Picker & Web Search Toggle)
+    col_nav1, col_nav2 = st.columns([4, 1], vertical_alignment="center")
+
+    with col_nav1:
+        def _on_top_model_change():
+            st.session_state.selected_model = st.session_state.top_selected_model
+            change_chat()
+
+        top_model_options = [
+            "Gemini 3.1 Flash Lite",
+            "Gemini 2.5 Flash Lite",
+            "Gemini 2.5 Flash",
+            "Gemini 2.5 Pro",
+        ]
+        top_idx = top_model_options.index(st.session_state.selected_model) if st.session_state.selected_model in top_model_options else 0
+
+        st.selectbox(
+            "Model",
+            top_model_options,
+            index=top_idx,
+            key="top_selected_model",
+            on_change=_on_top_model_change,
+            label_visibility="collapsed",
+        )
+
+    with col_nav2:
+        st.toggle(
+            "🌐 Web Search",
+            value=st.session_state.web_search,
+            key="web_search_toggle",
+            on_change=toggle_web_search,
+        )
+        st.session_state.web_search = st.session_state.web_search_toggle
+
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+
+    # Welcome Screen when Chat is empty
     if len(st.session_state.messages) == 0:
         st.markdown(
             f"""
-            <div style="text-align:center; margin-top:40px;">
-                <h1>Welcome, {st.session_state.user_name} </h1>
-                <p>What can I help you with today?</p>
+            <div class="welcome-hero">
+                <h1>Hello, {st.session_state.user_name} 👋</h1>
+                <p>What would you like to explore today?</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        st.write("")
-        st.write("")
+        st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
 
 
         
         col1, col2 = st.columns(2)
 
         with col1:
+            st.markdown('<div class="suggestion-card-btn">', unsafe_allow_html=True)
+            if st.button("💡 Brainstorm Strategy\nOutline a new digital product roadmap", use_container_width=True):
+                st.session_state.selected_prompt = "Help me outline a launch strategy for a new digital product idea."
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
-            if st.button(
-                "🐍 Explain Python Decorators",
-                use_container_width=True
-            ):
-                st.session_state.selected_prompt = (
-                    "Explain Python decorators."
-                )
+            st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
 
-            if st.button(
-                "📚 Summarize Machine Learning",
-                use_container_width=True
-            ):
-                st.session_state.selected_prompt = (
-                    "Summarize machine learning."
-                )
-
-            if st.button(
-                "😂 Tell me a Joke",
-                use_container_width=True
-            ):
-                st.session_state.selected_prompt = (
-                    "Tell me a joke."
-                )
+            st.markdown('<div class="suggestion-card-btn">', unsafe_allow_html=True)
+            if st.button("📝 Summarize Text\nDistill key points and action items", use_container_width=True):
+                st.session_state.selected_prompt = "Summarize the key takeaways and action items from a complex document."
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
         with col2:
+            st.markdown('<div class="suggestion-card-btn">', unsafe_allow_html=True)
+            if st.button("💻 Write & Debug Code\nPython script to analyze datasets", use_container_width=True):
+                st.session_state.selected_prompt = "Write a Python script to clean, analyze, and visualize a dataset."
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
-            if st.button(
-                "💻 Generate HTML Code",
-                use_container_width=True
-            ):
-                st.session_state.selected_prompt = (
-                    "Generate HTML code."
-                )
+            st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
 
-            if st.button(
-                "🗄 SQL JOIN Example",
-                use_container_width=True
-            ):
-                st.session_state.selected_prompt = (
-                    "Write a SQL JOIN example."
-                )
+            st.markdown('<div class="suggestion-card-btn">', unsafe_allow_html=True)
+            if st.button("🎓 Explain Concepts\nBreak down complex topics simply", use_container_width=True):
+                st.session_state.selected_prompt = "Explain quantum computing and quantum bits to a beginner using simple analogies."
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
-            if st.button(
-                "🐳 Explain Docker",
-                use_container_width=True
-            ):
-                st.session_state.selected_prompt = (
-                    "Explain Docker."
-                )
-
-# ================= Chat History =================
-    if st.session_state.current_conversation:
-        st.session_state.messages = get_messages(
-            st.session_state.current_conversation
-        )
-
+# ================= Chat History Display =================
     for i, message in enumerate(st.session_state.messages):
+<<<<<<< HEAD
 
         avatar = "👤" if message["role"] == "user" else "🤖"
+=======
+        avatar = "🧑" if message["role"] == "user" else "✨"
+>>>>>>> v1
 
         with st.chat_message(message["role"], avatar=avatar):
 
@@ -399,28 +443,7 @@ if st.session_state.page == "chat":
                         st.session_state[f"summary_{i}"]
                     )
 
-# ================= web search =================
-def toggle_web_search():
-    st.session_state.chat = create_chat(
-        model_name=st.session_state.selected_model,
-        temperature=st.session_state.temperature,
-        top_p=st.session_state.top_p,
-        top_k=st.session_state.top_k,
-        max_tokens=st.session_state.max_tokens,
-        web_search=st.session_state.web_search_toggle,
-    )
-
-
-col1, col2 = st.columns([4, 1])
-with col2:
-    st.toggle(
-        "🌐 Web Search",
-        value=st.session_state.web_search,
-        key="web_search_toggle",
-        on_change=toggle_web_search,
-    )
-
-    st.session_state.web_search = st.session_state.web_search_toggle
+# (Web Search toggle is now integrated into top control bar)
 
 # ============= chat input ====================
 if st.session_state.page == "chat":
@@ -589,8 +612,9 @@ if st.session_state.page == "chat":
                 title
             )
     # ================= Assistant =================
-        with st.chat_message("assistant", avatar="🤖"):
+        with st.chat_message("assistant", avatar="✨"):
             placeholder = st.empty()
+            placeholder.markdown("*✨ Neha AI is thinking...*")
             full_response = ""
 
             try:
@@ -606,6 +630,20 @@ if st.session_state.page == "chat":
 
                 if url:
                     ai_prompt += f"\n\nURL:\n{url}"
+
+                # Re-build chat context with full history up to prior turn
+                all_stored = get_messages(st.session_state.current_conversation)
+                prior_messages = all_stored[:-1] if len(all_stored) > 1 else []
+
+                st.session_state.chat = create_chat(
+                    model_name=st.session_state.selected_model,
+                    temperature=st.session_state.temperature,
+                    top_p=st.session_state.top_p,
+                    top_k=st.session_state.top_k,
+                    max_tokens=st.session_state.max_tokens,
+                    web_search=st.session_state.web_search,
+                    messages=prior_messages,
+                )
 
                 for chunk in stream_response(
                     st.session_state.chat,
