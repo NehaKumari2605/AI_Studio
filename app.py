@@ -1,12 +1,10 @@
 import streamlit as st
+from analytics import show_analytics
+from login import show_login, show_register
+from sidebar import show_sidebar
 from st_copy import copy_button
-import pandas as pd
-import matplotlib.pyplot as plt
 from PIL import Image
-import json
 import os
-import shutil
-import tempfile
 import time
 import re
 from chatbot import (
@@ -29,15 +27,11 @@ from database import (
     update_message
 )
 from utils import (
-    add_message,
-    export_json,
+    export_pdf,
+    export_docx,
     export_txt,
     export_md,
-    export_docx,
-    export_pdf,
-    conversation_stats,
-    get_last_response
-
+    export_json,
 )
 from dotenv import load_dotenv
 
@@ -77,6 +71,10 @@ def load_css(file_name):
     with open(file_name) as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
+def load_main_css():
+    with open("main.css") as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -93,6 +91,9 @@ if not cookies.ready():
     st.stop()
 
 # ================= Session State =================
+if "generated_file" not in st.session_state:
+    st.session_state.generated_file = None
+
 if "current_conversation" not in st.session_state:
     st.session_state.current_conversation = None
 
@@ -151,16 +152,17 @@ if "chat" not in st.session_state:
         st.error(f"Failed to initialize Gemini: {e}")
         st.stop()
 
+# if st.session_state.generated_file:
 
-def change_chat():
-    st.session_state.chat = create_chat(
-        model_name=st.session_state.selected_model,
-        temperature=st.session_state.temperature,
-        top_p=st.session_state.top_p,
-        top_k=st.session_state.top_k,
-        max_tokens=st.session_state.max_tokens,
-        web_search=st.session_state.web_search,
-    )
+#     f = st.session_state.generated_file
+
+#     st.download_button(
+#         label=f["label"],
+#         data=f["data"],
+#         file_name=f["file_name"],
+#         mime=f["mime"],
+#         use_container_width=True,
+#     )
 
 # ============ Restore login from cookies ============
 if (
@@ -177,87 +179,13 @@ if not st.session_state.logged_in:
 
     load_css("style.css")
 
-    page = st.session_state.auth_page
-
-    if page == "login":
-        st.markdown("""
-            <h1 style="color:black;">🤖 AI ChatBot</h1>
-            <p style="color:black;">Welcome back! Please sign in.</p>
-            """, unsafe_allow_html=True)
-
-        email = st.text_input("Email")
-
-        password = st.text_input(
-            "Password",
-            type="password"
-        )
-
-        if st.button("Login", use_container_width=True):
-
-            if not email.strip() or not password.strip():
-                st.error("⚠️ Please fill all required fields.")
-
-            else:
-                success, result = login_user(email, password)
-
-                if success:
-                    st.session_state.logged_in = True
-                    st.session_state.user = result
-                    st.session_state.user_id = result["id"]
-                    st.session_state.user_name = result["full_name"]
-
-                    cookies["user_id"] = str(result["id"])
-                    cookies["user_name"] = result["full_name"]
-                    cookies.save()
-
-                    st.success("✅ Login Successful")
-                    st.rerun()
-
-                else:
-                    st.error(result)
-
-        st.write("Don't have an account?")
-
-        if st.button("Register Here", use_container_width=True):
-            st.session_state.auth_page = "register"
-            st.rerun()
-
+    if st.session_state.auth_page == "login":
+        show_login(login_user, cookies)
     else:
-        st.title(" Register")
+        show_register(register_user)
 
-        name = st.text_input("Full Name")
-        email = st.text_input("Email")
-        password = st.text_input("Password", type="password")
-        confirm = st.text_input("Confirm Password", type="password")
-
-        if st.button("Create Account", use_container_width=True):
-
-            if not name.strip() or not email.strip() or not password or not confirm:
-                st.error("⚠️ Please fill all required fields.")
-
-            elif password != confirm:
-                st.error("⚠️ Passwords do not match.")
-
-            else:
-                success, message = register_user(
-                    name,
-                    email,
-                    password
-                )
-
-                if success:
-                    st.success(message)
-                    st.session_state.auth_page = "login"
-                    st.rerun()
-                else:
-                    st.error(message)
-
-        if st.button("Back to Login", use_container_width=True):
-            st.session_state.auth_page = "login"
-            st.rerun()
-
-if not st.session_state.logged_in:
     st.stop()
+    
 # ================= Top Bar =================
 left, right = st.columns([5, 2], vertical_alignment="center")
 
@@ -266,369 +194,10 @@ with left:
 
 with right:
     st.write(f" {st.session_state.selected_model}")
+
 # ================= Sidebar =================
-with st.sidebar:
-    st.markdown('<div class="sidebar-top">', unsafe_allow_html=True)
+show_sidebar(cookies)
 
-    st.title("🤖 AI ChatBot")
-    st.caption("v2.4 Pro")
-
-    if st.button("➕ New Chat", use_container_width=True):
-
-        st.session_state.page = "chat"
-
-        st.session_state.current_conversation = None
-        st.session_state.messages = []
-        st.session_state.chat = create_chat(
-            model_name=st.session_state.selected_model,
-            temperature=st.session_state.temperature,
-            top_p=st.session_state.top_p,
-            top_k=st.session_state.top_k,
-            max_tokens=st.session_state.max_tokens,
-            web_search=st.session_state.web_search,
-        )
-
-        st.rerun()
-
-    if st.button("📊 Analytics", use_container_width=True):
-
-        if st.session_state.page == "analytics":
-            st.session_state.page = "chat"
-        else:
-            st.session_state.page = "analytics"
-
-        st.rerun()
-
-    with st.popover("🗑️ Clear Chat", use_container_width=True):
-
-        st.warning("Delete all conversations?")
-
-        if st.button(
-            "✅ Yes, Delete All",
-            use_container_width=True,
-            key="delete_all_confirm",
-        ):
-
-            delete_all_conversations(st.session_state.user_id)
-
-            st.session_state.current_conversation = None
-            st.session_state.messages = []
-            st.session_state.page = "chat"
-
-            st.session_state.chat = create_chat(
-                model_name=st.session_state.selected_model,
-                temperature=st.session_state.temperature,
-                top_p=st.session_state.top_p,
-                top_k=st.session_state.top_k,
-                max_tokens=st.session_state.max_tokens,
-                web_search=st.session_state.web_search,
-            )
-
-            st.rerun()
-
-        if st.button(
-            "❌ Cancel",
-            use_container_width=True,
-            key="delete_all_cancel",
-        ):
-            st.rerun()
-
-    search = st.text_input(
-        "Search",
-        placeholder="Search History...",
-        icon=":material/search:",
-        label_visibility="collapsed",
-    )
-    st.divider()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown('<div class="sidebar-history">', unsafe_allow_html=True)
-    st.subheader("🕒 Recent Chats")
-
-    conversations = []
-
-    if st.session_state.user_id:
-
-        conversations = get_conversations(
-            st.session_state.user_id
-        )
-
-        conversations = [
-            conv
-            for conv in conversations
-            if conv["id"] not in st.session_state.hidden_conversations
-        ]
-
-    if search:
-        conversations = [
-            conv for conv in conversations
-            if search.lower() in conv["title"].lower()
-        ]
-
-    for conv in conversations:
-
-        col1, col2 = st.columns([15, 1], vertical_alignment="center")
-
-        title = conv["title"]
-
-        if conv["pinned"]:
-            title = "📌 " + title
-
-        if len(title) > 28:
-            title = title[:28] + "..."
-
-        with col1:
-            if st.button(
-                title,
-                key=f"history_{conv['id']}",
-                use_container_width=True,
-            ):
-
-                st.session_state.current_conversation = conv["id"]
-
-                st.session_state.messages = get_messages(
-                    conv["id"]
-                )
-
-                st.session_state.chat = create_chat(
-                    model_name=st.session_state.selected_model,
-                    temperature=st.session_state.temperature,
-                    top_p=st.session_state.top_p,
-                    top_k=st.session_state.top_k,
-                    max_tokens=st.session_state.max_tokens,
-                    web_search=st.session_state.web_search,
-                )
-
-                st.rerun()
-
-        with col2:
-            with st.popover("⋮"):
-                if conv["pinned"]:
-                    if st.button(
-                        "📌 Unpin",
-                        key=f"unpin_{conv['id']}",
-                        use_container_width=True,
-                    ):
-                        pin_conversation(conv["id"], False)
-                        st.rerun()
-                else:
-                    if st.button(
-                        "📌 Pin",
-                        key=f"pin_{conv['id']}",
-                        use_container_width=True,
-                    ):
-                        pin_conversation(conv["id"], True)
-                        st.rerun()
-
-                if st.button(
-                    "✏️ Rename",
-                    key=f"rename_btn_{conv['id']}",
-                    use_container_width=True,
-                ):
-                    st.session_state.rename_id = conv["id"]
-                    st.rerun()
-
-                with st.popover("🗑 Delete", use_container_width=True):
-
-                    st.warning("Delete this conversation?")
-
-                    if st.button(
-                        "✅ Yes, Delete",
-                        key=f"confirm_delete_{conv['id']}",
-                        use_container_width=True,
-                    ):
-                        delete_conversation(conv["id"])
-
-                        if st.session_state.current_conversation == conv["id"]:
-                            st.session_state.current_conversation = None
-                            st.session_state.messages = []
-
-                        st.rerun()
-
-                    if st.button(
-                        "❌ Cancel",
-                        key=f"cancel_delete_{conv['id']}",
-                        use_container_width=True,
-                    ):
-                        st.rerun()
-
-                with st.popover("💾 Export Chat", use_container_width=True):
-
-                    export_format = st.radio(
-                        "Export As",
-                        [
-                            "PDF",
-                            "DOCX",
-                            "TXT",
-                            "Markdown",
-                            "JSON"
-                        ],
-                        key=f"export_format_{conv['id']}",
-                    )
-
-                    messages = get_messages(conv["id"])
-
-                    if export_format == "PDF":
-                        data = export_pdf(messages)
-                        filename = "chat.pdf"
-                        mime = "application/pdf"
-
-                    elif export_format == "DOCX":
-                        data = export_docx(messages)
-                        filename = "chat.docx"
-                        mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-
-                    elif export_format == "TXT":
-                        data = export_txt(messages)
-                        filename = "chat.txt"
-                        mime = "text/plain"
-
-                    elif export_format == "Markdown":
-                        data = export_md(messages)
-                        filename = "chat.md"
-                        mime = "text/markdown"
-
-                    else:
-                        data = export_json(messages)
-
-                        filename = "chat.json"
-                        mime = "application/json"
-
-                    st.download_button(
-                        "⬇ Download",
-                        data=data,
-                        file_name=filename,
-                        mime=mime,
-                        use_container_width=True,
-                        key=f"download_{conv['id']}"
-                    )
-
-    if "rename_id" in st.session_state:
-
-        current = next(
-            (
-                c for c in conversations
-                if c["id"] == st.session_state.rename_id
-            ),
-            None
-        )
-
-        if current:
-
-            new_title = st.text_input(
-                "Rename Conversation",
-                value=current["title"],
-                key=f"rename_input_{current['id']}"
-            )
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-
-                if st.button("Save"):
-
-                    rename_conversation(
-                        st.session_state.rename_id,
-                        new_title
-                    )
-
-                    del st.session_state.rename_id
-
-                    st.rerun()
-
-            with col2:
-
-                if st.button("Cancel"):
-
-                    del st.session_state.rename_id
-
-                    st.rerun()
-    st.divider()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown('<div class="sidebar-bottom">', unsafe_allow_html=True)
-
-    with st.container(border=True):
-        c1, c2, c3 = st.columns([1, 3, 1])
-        with c1:
-            st.markdown("👤")
-        with c2:
-            st.subheader(st.session_state.user_name)
-        with c3:
-
-            with st.popover("⚙️", use_container_width=True):
-
-                with st.popover("🤖 Model", use_container_width=True):
-                    st.radio(
-                        "Choose AI Model",
-                        [
-                            "Gemini 3.1 Flash Lite",
-                            "Gemini 2.5 Flash Lite",
-                            "Gemini 2.5 Flash",
-                            "Gemini 2.5 Pro",
-                        ],
-                        key="selected_model",
-                        on_change=change_chat,
-                    )
-
-                with st.popover("🎛️ Generation", use_container_width=True):
-
-                    st.session_state.temperature = st.slider(
-                        "Temperature",
-                        0.0,
-                        2.0,
-                        st.session_state.temperature,
-                    )
-
-                    st.session_state.top_p = st.slider(
-                        "Top P",
-                        0.0,
-                        1.0,
-                        st.session_state.top_p,
-                    )
-
-                    st.session_state.top_k = st.slider(
-                        "Top K",
-                        1,
-                        100,
-                        st.session_state.top_k,
-                    )
-
-                    st.session_state.max_tokens = st.slider(
-                        "Maximum Output Tokens",
-                        128,
-                        4096,
-                        st.session_state.max_tokens,
-                    )
-
-                    if st.button("Apply Settings", use_container_width=True):
-                        change_chat()
-                        st.success("Settings applied.")
-
-                with st.popover("🚪 Logout", use_container_width=True):
-                    st.write(f"👋 {st.session_state.user_name}")
-
-                    if st.button("Logout", use_container_width=True):
-
-                        cookies["user_id"] = ""
-                        cookies["user_name"] = ""
-                        cookies.save()
-
-                        st.session_state.logged_in = False
-                        st.session_state.user = None
-                        st.session_state.user_id = None
-                        st.session_state.user_name = ""
-                        st.session_state.current_conversation = None
-                        st.session_state.messages = []
-                        st.session_state.auth_page = "login"
-
-                        st.success("✅ Successfully logged out!")
-
-                        time.sleep(1)
-
-                        st.rerun()
-
-    st.markdown("</div>", unsafe_allow_html=True)
 # ================= Main =================
 if st.session_state.page == "chat":
     # Welcome Screen
@@ -646,6 +215,8 @@ if st.session_state.page == "chat":
         st.write("")
         st.write("")
 
+
+        
         col1, col2 = st.columns(2)
 
         with col1:
@@ -708,7 +279,7 @@ if st.session_state.page == "chat":
 
     for i, message in enumerate(st.session_state.messages):
 
-        avatar = "🧑" if message["role"] == "user" else "🤖"
+        avatar = "👤" if message["role"] == "user" else "🤖"
 
         with st.chat_message(message["role"], avatar=avatar):
 
@@ -924,7 +495,7 @@ if st.session_state.page == "chat":
     # FIX: `document` was missing from this condition before, so
     # uploading only a document (no text) silently did nothing.
     if prompt or url or image or video or document:
-        with st.chat_message("user", avatar="🧑"):
+        with st.chat_message("user", avatar="👤"):
 
             if image:
                 st.image(image, width=250)
@@ -1046,19 +617,88 @@ if st.session_state.page == "chat":
 
                     full_response += chunk
 
-                    placeholder.markdown(
-                        full_response + "▌"
-                    )
+                    placeholder.markdown(" **Generating response...**")
+                    time.sleep(0.3)
 
                 placeholder.markdown(full_response)
+                text = (prompt or "").lower()
+
+                messages = [
+                    {
+                        "role": "assistant",
+                        "message": full_response
+                    }
+                ]
+
+                if "pdf" in text:
+
+                    st.download_button(
+                        "📄 Download PDF",
+                        data=export_pdf(messages),
+                        file_name="document.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                    )
+
+                elif "docx" in text or "word" in text:
+
+                    st.download_button(
+                        "📄 Download DOCX",
+                        data=export_docx(messages),
+                        file_name="document.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        use_container_width=True,
+                    )
+
+                elif "txt" in text:
+
+                    st.download_button(
+                        "📄 Download TXT",
+                        data=export_txt(messages),
+                        file_name="document.txt",
+                        mime="text/plain",
+                        use_container_width=True,
+                    )
+
+                elif "markdown" in text or ".md" in text:
+
+                    st.download_button(
+                        "📄 Download Markdown",
+                        data=export_md(messages),
+                        file_name="document.md",
+                        mime="text/markdown",
+                        use_container_width=True,
+                    )
+
+                elif "json" in text:
+
+                    st.download_button(
+                        "📄 Download JSON",
+                        data=export_json(messages),
+                        file_name="document.json",
+                        mime="application/json",
+                        use_container_width=True,
+                    )
+
+                if st.session_state.generated_file:
+
+                    f = st.session_state.generated_file
+
+                    # st.download_button(
+                    #     label=f["label"],
+                    #     data=f["data"],
+                    #     file_name=f["file_name"],
+                    #     mime=f["mime"],
+                    #     use_container_width=True,
+                    # )
 
                 save_message(
                     st.session_state.current_conversation,
                     "assistant",
                     full_response
                 )
-
-                st.rerun()
+    
+            
 
             except Exception as e:
 
@@ -1079,81 +719,4 @@ if st.session_state.page == "chat":
 
 # ================= Analytics =================
 elif st.session_state.page == "analytics":
-
-    st.title("📊 Conversation Analytics")
-    st.caption("Overview of your AI chat activity")
-
-    stats = dashboard_stats(st.session_state.user_id)
-
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-        with st.container(border=True):
-            st.metric(
-                "💬 Total Messages",
-                stats["total_messages"]
-            )
-
-    with c2:
-        with st.container(border=True):
-            st.metric(
-                "👤 User Messages",
-                stats["user_messages"]
-            )
-
-    with c3:
-        with st.container(border=True):
-            st.metric(
-                "🤖 AI Messages",
-                stats["ai_messages"]
-            )
-
-    st.write("")
-
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-        with st.container(border=True):
-            st.metric(
-                "📝 Total Words",
-                stats["total_words"]
-            )
-
-    with c2:
-        with st.container(border=True):
-            st.metric(
-                "💬 Conversations",
-                stats["total_conversations"]
-            )
-
-    with c3:
-        with st.container(border=True):
-            st.metric(
-                "⏱ Duration",
-                stats["conversation_duration"]
-            )
-
-    st.write("")
-
-    # ================= Activity =================
-
-    with st.container(border=True):
-
-        st.subheader("📈 Activity Summary")
-
-        total = max(stats["total_messages"], 1)
-
-        user_percent = round(
-            stats["user_messages"] / total * 100
-        )
-
-        ai_percent = round(
-            stats["ai_messages"] / total * 100
-        )
-
-        st.progress(stats["user_messages"] / total)
-
-        st.write(f"👤 User Messages : **{user_percent}%**")
-        st.write(f"🤖 AI Messages : **{ai_percent}%**")
-
-    st.write("")
+    show_analytics(st.session_state.user_id)
